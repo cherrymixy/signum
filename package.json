@@ -1,0 +1,16 @@
+{
+  "name": "signum",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm --recursive build",
+    "install": "pnpm install"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
+
+
+
