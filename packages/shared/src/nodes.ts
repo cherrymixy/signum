@@ -1,3 +1,5 @@
+import { AnalysisResult } from './analysis';
+
 export type NodeType = 'imageUpload' | 'decodingAnalysis';
 
 export interface ImageUploadNodeData {

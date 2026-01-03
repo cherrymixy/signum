@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   Node,
   Connection,
@@ -13,18 +13,60 @@ import { NodeType, ImageUploadNodeData, DecodingAnalysisNodeData } from '@signum
 import { useCanvasState } from '@/hooks/useCanvasState';
 import FlowCanvas from '@/components/Canvas/FlowCanvas';
 import QuickAccessPanel from '@/components/QuickAccess/QuickAccessPanel';
+import CanvasHeader from '@/components/Header/CanvasHeader';
+import { getEdgeLabel, getEdgeColor } from '@/lib/nodeStyles';
 import { v4 as uuidv4 } from 'uuid';
 
 export default function Home() {
   const {
     nodes,
     edges,
+    mode,
+    isEditMode,
+    isViewMode,
     addNode,
     updateNode,
     addEdge,
     setNodes,
     setEdges,
   } = useCanvasState();
+
+  const [title, setTitle] = useState('');
+  const [isDarkMode, setIsDarkMode] = useState(true);
+
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+  }, []);
+
+  const handleThemeToggle = useCallback(() => {
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      // body에 클래스 추가/제거
+      if (typeof document !== 'undefined') {
+        if (newMode) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        } else {
+          document.documentElement.classList.add('light');
+          document.documentElement.classList.remove('dark');
+        }
+      }
+      return newMode;
+    });
+  }, []);
+
+  // 초기 테마 적용
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  }, [isDarkMode]);
 
   // 노드 업데이트 핸들러
   const handleNodeUpdate = useCallback(
@@ -50,24 +92,45 @@ export default function Home() {
     [edges, setEdges]
   );
 
-  // 엣지 연결 핸들러
+  // 엣지 연결 핸들러 (항상 동작)
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source && connection.target) {
+        const sourceNode = nodes.find((n) => n.id === connection.source);
+        const targetNode = nodes.find((n) => n.id === connection.target);
+        
+        if (!sourceNode || !targetNode) return;
+        
+        // 노드 타입에 따라 라벨 및 컬러 결정 (데이터 기반)
+        const label = getEdgeLabel(
+          sourceNode.type,
+          targetNode.type,
+          (sourceNode.data as any)?.type,
+          (targetNode.data as any)?.type
+        );
+        const color = getEdgeColor(
+          sourceNode.type,
+          targetNode.type,
+          (sourceNode.data as any)?.type,
+          (targetNode.data as any)?.type
+        );
+        
         const newEdge = {
           id: uuidv4(),
           source: connection.source,
           target: connection.target,
           sourceHandle: connection.sourceHandle,
           targetHandle: connection.targetHandle,
+          type: 'custom',
+          data: { label, color },
         };
         addEdge(newEdge);
       }
     },
-    [addEdge]
+    [addEdge, nodes]
   );
 
-  // 드래그 앤 드롭 핸들러
+  // 드래그 앤 드롭 핸들러 (항상 동작)
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -153,8 +216,15 @@ export default function Home() {
   }, [nodes, edges, handleNodeUpdate]);
 
   return (
-    <div className="w-screen h-screen flex">
+    <div className="w-screen h-screen flex bg-[#0a0a0a]">
+      <QuickAccessPanel onNodeCreate={addNode} isDarkMode={isDarkMode} />
       <div className="flex-1 relative">
+        <CanvasHeader
+          title={title}
+          onTitleChange={handleTitleChange}
+          isDarkMode={isDarkMode}
+          onThemeToggle={handleThemeToggle}
+        />
         <FlowCanvas
           nodes={nodesWithHandlers}
           edges={edges}
@@ -164,9 +234,10 @@ export default function Home() {
           onNodeUpdate={handleNodeUpdate}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          isEditMode={isEditMode}
+          isDarkMode={isDarkMode}
         />
       </div>
-      <QuickAccessPanel onNodeCreate={addNode} />
     </div>
   );
 }

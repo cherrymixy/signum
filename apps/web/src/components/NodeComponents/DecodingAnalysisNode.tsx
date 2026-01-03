@@ -4,6 +4,7 @@ import React, { useState, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { DecodingAnalysisNodeData, AnalysisResult, AnalysisItem } from '@signum/shared';
 import { analyzeImage, getImageUrl } from '@/lib/api';
+import { getNodeStyle } from '@/lib/nodeStyles';
 
 interface DecodingAnalysisNodeProps extends NodeProps {
   data: DecodingAnalysisNodeData & {
@@ -18,6 +19,7 @@ const TARGET_PRESETS = [
   { value: '30s_male', label: '30대 남성' },
   { value: 'general', label: '일반' },
   { value: 'designers', label: '디자이너' },
+  { value: 'children', label: '어린이' },
 ];
 
 const CONTEXT_PRESETS = [
@@ -25,24 +27,26 @@ const CONTEXT_PRESETS = [
   { value: 'editorial', label: '에디토리얼' },
   { value: 'poster', label: '포스터' },
   { value: 'advertisement', label: '광고' },
+  { value: 'fairy_tale', label: '동화' },
 ];
 
 function renderAnalysisItem(item: AnalysisItem, index: number) {
   if (typeof item === 'string') {
-    return <li key={index} className="text-sm text-gray-700">{item}</li>;
+    return <li key={index} className="text-sm text-[#cccccc] leading-relaxed">{item}</li>;
   }
   return (
-    <li key={index} className="text-sm">
-      <span className="font-medium text-gray-800">{item.title}:</span>{' '}
-      <span className="text-gray-600">{item.detail}</span>
+    <li key={index} className="text-sm leading-relaxed">
+      <span className="font-medium text-[#e5e5e5]">{item.title}:</span>{' '}
+      <span className="text-[#aaaaaa]">{item.detail}</span>
     </li>
   );
 }
 
-export default function DecodingAnalysisNode({ data }: DecodingAnalysisNodeProps) {
+export default function DecodingAnalysisNode({ data, type }: DecodingAnalysisNodeProps) {
   const [intentText, setIntentText] = useState(data.intentText || '');
   const [targetPreset, setTargetPreset] = useState(data.targetPreset || '');
   const [contextPreset, setContextPreset] = useState(data.contextPreset || '');
+  const nodeStyle = getNodeStyle(type || 'decodingAnalysis');
 
   const handleAnalyze = useCallback(async () => {
     if (!data.connectedImageNodeData?.imageId) {
@@ -94,71 +98,65 @@ export default function DecodingAnalysisNode({ data }: DecodingAnalysisNodeProps
   }, [data, intentText, targetPreset, contextPreset]);
 
   return (
-    <div className="bg-white border-2 border-gray-300 rounded-lg shadow-lg min-w-[320px] max-w-[400px]">
-      <Handle type="target" position={Position.Left} />
+    <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-[0_1px_3px_rgba(0,0,0,0.3)] min-w-[360px] max-w-[480px]">
+      <Handle 
+        type="target" 
+        position={Position.Left}
+        style={{ borderColor: nodeStyle.portColor }}
+      />
       
-      <div className="p-4 space-y-4">
-        <div className="font-semibold text-gray-800 flex items-center gap-2">
-          <span>🔍</span>
-          <span>Decoding Analysis</span>
+      <div className="border-b border-[#2a2a2a] px-6 py-3">
+        <div className="text-xs font-medium text-[#e5e5e5] tracking-wide uppercase">
+          {nodeStyle.title}
         </div>
-
+      </div>
+      
+      <div className="p-6 space-y-5">
         {data.status === 'error' && data.errorMessage && (
-          <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">
+          <div className="bg-[#2a1a1a] border border-[#4a2a2a] rounded-md p-3 text-sm text-[#cc6666]">
             {data.errorMessage}
           </div>
         )}
 
         {!data.connectedImageNodeData?.imageId && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded p-2 text-sm text-yellow-700">
+          <div className="bg-[#2a2a1a] border border-[#4a4a2a] rounded-md p-3 text-sm text-[#ccaa66]">
             이미지 노드와 연결해주세요.
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              의도 텍스트
-            </label>
             <textarea
               value={intentText}
               onChange={(e) => setIntentText(e.target.value)}
-              placeholder="이미지가 어떻게 해석될지 분석해주세요"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows={2}
+              placeholder="의도 텍스트를 입력하세요"
+              className="w-full px-4 py-3 text-sm bg-[#0f0f0f] border border-[#2a2a2a] rounded-md text-[#e5e5e5] placeholder-[#555555] focus:outline-none focus:border-[#404040] resize-none transition-colors"
+              rows={3}
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              타겟 프리셋
-            </label>
+          <div className="flex gap-3">
             <select
               value={targetPreset}
               onChange={(e) => setTargetPreset(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 text-sm bg-[#0f0f0f] border border-[#2a2a2a] rounded-md text-[#e5e5e5] focus:outline-none focus:border-[#404040] transition-colors"
             >
-              <option value="">선택하세요</option>
+              <option value="" className="bg-[#1a1a1a]">타겟</option>
               {TARGET_PRESETS.map((preset) => (
-                <option key={preset.value} value={preset.value}>
+                <option key={preset.value} value={preset.value} className="bg-[#1a1a1a]">
                   {preset.label}
                 </option>
               ))}
             </select>
-          </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              컨텍스트 프리셋
-            </label>
             <select
               value={contextPreset}
               onChange={(e) => setContextPreset(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 text-sm bg-[#0f0f0f] border border-[#2a2a2a] rounded-md text-[#e5e5e5] focus:outline-none focus:border-[#404040] transition-colors"
             >
-              <option value="">선택하세요</option>
+              <option value="" className="bg-[#1a1a1a]">컨텍스트</option>
               {CONTEXT_PRESETS.map((preset) => (
-                <option key={preset.value} value={preset.value}>
+                <option key={preset.value} value={preset.value} className="bg-[#1a1a1a]">
                   {preset.label}
                 </option>
               ))}
@@ -168,14 +166,14 @@ export default function DecodingAnalysisNode({ data }: DecodingAnalysisNodeProps
           <button
             onClick={handleAnalyze}
             disabled={data.status === 'analyzing'}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+            className="w-full px-4 py-2.5 bg-[#2a2a2a] text-[#888888] rounded-md hover:bg-[#333333] hover:text-[#aaaaaa] disabled:bg-[#1a1a1a] disabled:text-[#555555] disabled:cursor-not-allowed text-sm transition-colors"
           >
             {data.status === 'analyzing' ? '분석 중...' : 'Analyze'}
           </button>
         </div>
 
         {data.analysisResult && data.status === 'completed' && (
-          <div className="mt-4 space-y-3 border-t border-gray-200 pt-4">
+          <div className="mt-5 space-y-4 border-t border-[#2a2a2a] pt-5">
             <AnalysisResultView result={data.analysisResult} />
           </div>
         )}
@@ -186,11 +184,11 @@ export default function DecodingAnalysisNode({ data }: DecodingAnalysisNodeProps
 
 function AnalysisResultView({ result }: { result: AnalysisResult }) {
   return (
-    <div className="space-y-4 text-xs">
+    <div className="space-y-5 text-sm">
       {result.observation.length > 0 && (
         <div>
-          <h4 className="font-semibold text-gray-800 mb-2">관찰 사항</h4>
-          <ul className="list-disc list-inside space-y-1">
+          <h4 className="font-medium text-[#e5e5e5] mb-3 text-xs tracking-wide uppercase">관찰 사항</h4>
+          <ul className="space-y-2 pl-0 list-none">
             {result.observation.map(renderAnalysisItem)}
           </ul>
         </div>
@@ -198,8 +196,8 @@ function AnalysisResultView({ result }: { result: AnalysisResult }) {
 
       {result.connotation.length > 0 && (
         <div>
-          <h4 className="font-semibold text-gray-800 mb-2">함의</h4>
-          <ul className="list-disc list-inside space-y-1">
+          <h4 className="font-medium text-[#e5e5e5] mb-3 text-xs tracking-wide uppercase">함의</h4>
+          <ul className="space-y-2 pl-0 list-none">
             {result.connotation.map(renderAnalysisItem)}
           </ul>
         </div>
@@ -207,15 +205,15 @@ function AnalysisResultView({ result }: { result: AnalysisResult }) {
 
       {result.decoding_hypotheses.length > 0 && (
         <div>
-          <h4 className="font-semibold text-gray-800 mb-2">디코딩 가설</h4>
-          <ul className="space-y-2">
+          <h4 className="font-medium text-[#e5e5e5] mb-3 text-xs tracking-wide uppercase">디코딩 가설</h4>
+          <ul className="space-y-3">
             {result.decoding_hypotheses.map((hypothesis, index) => (
-              <li key={index} className="bg-gray-50 p-2 rounded">
-                <div className="font-medium text-gray-800">{hypothesis.label}</div>
-                <div className="text-gray-600 text-xs mt-1">
+              <li key={index} className="bg-[#0f0f0f] border border-[#2a2a2a] p-3 rounded-md">
+                <div className="font-medium text-[#e5e5e5] mb-1">{hypothesis.label}</div>
+                <div className="text-[#888888] text-xs mb-2">
                   확률: {(hypothesis.probability * 100).toFixed(1)}%
                 </div>
-                <div className="text-gray-600 text-xs mt-1">{hypothesis.rationale}</div>
+                <div className="text-[#aaaaaa] text-xs leading-relaxed">{hypothesis.rationale}</div>
               </li>
             ))}
           </ul>
@@ -224,8 +222,8 @@ function AnalysisResultView({ result }: { result: AnalysisResult }) {
 
       {result.risks.length > 0 && (
         <div>
-          <h4 className="font-semibold text-gray-800 mb-2">리스크</h4>
-          <ul className="list-disc list-inside space-y-1">
+          <h4 className="font-medium text-[#e5e5e5] mb-3 text-xs tracking-wide uppercase">리스크</h4>
+          <ul className="space-y-2 pl-0 list-none">
             {result.risks.map(renderAnalysisItem)}
           </ul>
         </div>
@@ -233,8 +231,8 @@ function AnalysisResultView({ result }: { result: AnalysisResult }) {
 
       {result.edit_suggestions.length > 0 && (
         <div>
-          <h4 className="font-semibold text-gray-800 mb-2">편집 제안</h4>
-          <ul className="list-disc list-inside space-y-1">
+          <h4 className="font-medium text-[#e5e5e5] mb-3 text-xs tracking-wide uppercase">편집 제안</h4>
+          <ul className="space-y-2 pl-0 list-none">
             {result.edit_suggestions.map(renderAnalysisItem)}
           </ul>
         </div>

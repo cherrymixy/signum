@@ -1,18 +1,48 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Node, Edge } from '@signum/shared';
-import { saveCanvasState, loadCanvasState, CanvasState } from '@/lib/storage';
+import { saveCanvasState, loadCanvasState, CanvasState, isDevelopmentMode } from '@/lib/storage';
+
+export type CanvasMode = 'edit' | 'view';
+
+/**
+ * Canvas 모드 감지
+ * URL 파라미터 ?edit=true가 있으면 edit 모드, 없으면 view 모드 (기본값)
+ */
+function getCanvasMode(): CanvasMode {
+  if (typeof window === 'undefined') return 'view';
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('edit') === 'true' ? 'edit' : 'view';
+}
 
 export function useCanvasState() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [mode, setMode] = useState<CanvasMode>(() => getCanvasMode());
 
-  // 초기 로드
+  // 초기 로드 (persistence가 활성화된 경우에만)
   useEffect(() => {
     const saved = loadCanvasState();
     if (saved) {
       setNodes(saved.nodes);
       setEdges(saved.edges);
     }
+  }, []);
+
+  // 모드 변경 감지 (URL 파라미터 변경 시)
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setMode(getCanvasMode());
+    };
+    
+    // 초기 모드 설정
+    handleLocationChange();
+    
+    // popstate 이벤트 리스너 (뒤로가기/앞으로가기)
+    window.addEventListener('popstate', handleLocationChange);
+    
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+    };
   }, []);
 
   // 상태 저장
@@ -69,9 +99,17 @@ export function useCanvasState() {
     saveCanvasState({ nodes: newNodes, edges });
   }, [edges]);
 
+  // edit 모드 여부
+  const isEditMode = useMemo(() => mode === 'edit', [mode]);
+  const isViewMode = useMemo(() => mode === 'view', [mode]);
+
   return {
     nodes,
     edges,
+    mode,
+    isEditMode,
+    isViewMode,
+    setMode,
     addNode,
     updateNode,
     addEdge,
