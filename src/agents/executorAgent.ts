@@ -16,6 +16,7 @@ export interface ExecutorAgentResult {
 
 /**
  * Executor Agent — Gemini를 사용하여 수정안을 반영한 이미지를 생성
+ * 모델: gemini-2.5-flash-image (Nano Banana — 무료 할당량 있음)
  */
 export async function runExecutorAgent(
     input: ExecutorAgentInput
@@ -25,7 +26,7 @@ export async function runExecutorAgent(
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash-preview-04-17',
+        model: 'gemini-2.5-flash-image',
         generationConfig: {
             responseModalities: ['Text', 'Image'],
         } as any,
