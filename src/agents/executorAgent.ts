@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { SuggestionItem } from '@/types';
 
 export interface ExecutorAgentInput {
@@ -15,8 +15,9 @@ export interface ExecutorAgentResult {
 }
 
 /**
- * Executor Agent — Gemini를 사용하여 수정안을 반영한 이미지를 생성
- * 모델: gemini-2.5-flash-image (Nano Banana — 무료 할당량 있음)
+ * Executor Agent — Gemini로 수정안을 반영한 이미지 생성
+ * SDK: @google/genai (공식 최신)
+ * 모델: gemini-3.1-flash-image-preview (Nano Banana 2 — 공식 권장)
  */
 export async function runExecutorAgent(
     input: ExecutorAgentInput
@@ -24,13 +25,7 @@ export async function runExecutorAgent(
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY가 설정되지 않았습니다.');
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash-image',
-        generationConfig: {
-            responseModalities: ['Text', 'Image'],
-        } as any,
-    });
+    const ai = new GoogleGenAI({ apiKey });
 
     const suggestionsText = input.suggestions
         .map((s, i) => `${i + 1}. [${s.area}] ${s.suggestion} (기대 효과: ${s.expectedImpact})`)
@@ -45,19 +40,25 @@ ${suggestionsText}
 
 Please apply these suggestions to edit the image. Keep the core composition but adjust according to the suggestions above. Return the edited image.`;
 
-    const result = await model.generateContent([
-        {
-            inlineData: {
-                mimeType: input.imageMimeType,
-                data: input.imageBase64,
+    const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType: input.imageMimeType,
+                            data: input.imageBase64,
+                        },
+                    },
+                    { text: prompt },
+                ],
             },
-        },
-        { text: prompt },
-    ]);
+        ],
+    });
 
-    const response = result.response;
     const parts = response.candidates?.[0]?.content?.parts;
-
     if (!parts) throw new Error('Gemini 응답이 비어있습니다.');
 
     let generatedImageBase64 = '';
@@ -66,7 +67,7 @@ Please apply these suggestions to edit the image. Keep the core composition but 
 
     for (const part of parts) {
         if (part.inlineData) {
-            generatedImageBase64 = part.inlineData.data;
+            generatedImageBase64 = part.inlineData.data || '';
             generatedImageMimeType = part.inlineData.mimeType || 'image/png';
         }
         if (part.text) {
