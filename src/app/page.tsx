@@ -1,0 +1,255 @@
+'use client';
+
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import {
+  Node as RFNode,
+  Connection,
+  OnNodesChange,
+  OnEdgesChange,
+  applyNodeChanges,
+  applyEdgeChanges,
+} from 'reactflow';
+import type { Node, Edge } from '@/types';
+import { NodeType, ImageUploadNodeData, DecodingAnalysisNodeData } from '@/types';
+import { useCanvasState } from '@/hooks/useCanvasState';
+import FlowCanvas from '@/components/Canvas/FlowCanvas';
+import QuickAccessPanel from '@/components/QuickAccess/QuickAccessPanel';
+import CanvasHeader from '@/components/Header/CanvasHeader';
+import { getEdgeLabel, getEdgeColor } from '@/lib/nodeStyles';
+import { v4 as uuidv4 } from 'uuid';
+
+export default function Home() {
+  const {
+    nodes,
+    edges,
+    mode,
+    isEditMode,
+    isViewMode,
+    addNode,
+    updateNode,
+    addEdge,
+    setNodes,
+    setEdges,
+  } = useCanvasState();
+
+  const [title, setTitle] = useState('');
+  const [isDarkMode, setIsDarkMode] = useState(true);
+
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+  }, []);
+
+  const handleThemeToggle = useCallback(() => {
+    setIsDarkMode((prev) => {
+      const newMode = !prev;
+      // body에 클래스 추가/제거
+      if (typeof document !== 'undefined') {
+        if (newMode) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        } else {
+          document.documentElement.classList.add('light');
+          document.documentElement.classList.remove('dark');
+        }
+      }
+      return newMode;
+    });
+  }, []);
+
+  // 초기 테마 적용
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (isDarkMode) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  }, [isDarkMode]);
+
+  // 노드 업데이트 핸들러
+  const handleNodeUpdate = useCallback(
+    (nodeId: string, data: Partial<ImageUploadNodeData | DecodingAnalysisNodeData>) => {
+      updateNode(nodeId, data);
+    },
+    [updateNode]
+  );
+
+  // React Flow 노드 변경 핸들러
+  const onNodesChange: OnNodesChange = useCallback(
+    (changes) => {
+      setNodes(applyNodeChanges(changes, nodes as RFNode[]) as unknown as Node[]);
+    },
+    [nodes, setNodes]
+  );
+
+  // React Flow 엣지 변경 핸들러
+  const onEdgesChange: OnEdgesChange = useCallback(
+    (changes) => {
+      setEdges(applyEdgeChanges(changes, edges as any) as unknown as Edge[]);
+    },
+    [edges, setEdges]
+  );
+
+  // 엣지 연결 핸들러 (항상 동작)
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (connection.source && connection.target) {
+        const sourceNode = nodes.find((n) => n.id === connection.source);
+        const targetNode = nodes.find((n) => n.id === connection.target);
+
+        if (!sourceNode || !targetNode) return;
+
+        // 노드 타입에 따라 라벨 및 컬러 결정 (데이터 기반)
+        const label = getEdgeLabel(
+          sourceNode.type,
+          targetNode.type,
+          (sourceNode.data as any)?.type,
+          (targetNode.data as any)?.type
+        );
+        const color = getEdgeColor(
+          sourceNode.type,
+          targetNode.type,
+          (sourceNode.data as any)?.type,
+          (targetNode.data as any)?.type
+        );
+
+        const newEdge: Edge = {
+          id: uuidv4(),
+          source: connection.source,
+          target: connection.target,
+          sourceHandle: connection.sourceHandle || undefined,
+          targetHandle: connection.targetHandle || undefined,
+          type: 'custom',
+        };
+        addEdge(newEdge);
+      }
+    },
+    [addEdge, nodes]
+  );
+
+  // 드래그 앤 드롭 핸들러 (항상 동작)
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+
+      const reactFlowData = event.dataTransfer.getData('application/reactflow');
+
+      // drag data가 없으면 즉시 return
+      if (!reactFlowData || reactFlowData.trim() === '') {
+        console.warn('Drop ignored: missing reactflow payload');
+        return;
+      }
+
+      let template;
+      try {
+        template = JSON.parse(reactFlowData);
+      } catch (error) {
+        // JSON 파싱 실패 시 무시하고 return
+        console.warn('Drop ignored: invalid reactflow payload');
+        return;
+      }
+
+      if (!template || !template.type) {
+        return;
+      }
+
+      const reactFlowBounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      const position = {
+        x: event.clientX - reactFlowBounds.left - 100,
+        y: event.clientY - reactFlowBounds.top - 50,
+      };
+
+      const newNode: Node = {
+        id: uuidv4(),
+        type: template.type as NodeType,
+        position,
+        data: getInitialNodeData(template.type),
+      };
+
+      addNode(newNode as any);
+    },
+    [addNode]
+  );
+
+  // 노드 데이터에 업데이트 핸들러와 연결 정보 추가
+  const nodesWithHandlers = useMemo(() => {
+    return nodes.map((node) => {
+      const baseData = node.data;
+
+      // 연결된 이미지 노드 찾기 (decodingAnalysis 노드의 경우)
+      let connectedImageNodeId: string | undefined;
+      let connectedImageNodeData: { imageBase64?: string; imageMimeType?: string } | undefined;
+
+      if (node.type === 'decodingAnalysis') {
+        const connectedEdge = edges.find((e) => e.target === node.id);
+        if (connectedEdge) {
+          connectedImageNodeId = connectedEdge.source;
+          const sourceNode = nodes.find((n) => n.id === connectedEdge.source);
+          if (sourceNode && sourceNode.type === 'imageUpload') {
+            connectedImageNodeData = {
+              imageBase64: (sourceNode.data as ImageUploadNodeData).imageBase64,
+              imageMimeType: (sourceNode.data as ImageUploadNodeData).imageMimeType,
+            };
+          }
+        }
+      }
+
+      return {
+        ...node,
+        data: {
+          ...baseData,
+          onUpdate: (data: Partial<any>) => handleNodeUpdate(node.id, data),
+          ...(node.type === 'decodingAnalysis' && {
+            connectedImageNodeId,
+            connectedImageNodeData,
+          }),
+        },
+      };
+    });
+  }, [nodes, edges, handleNodeUpdate]);
+
+  return (
+    <div className="w-screen h-screen flex bg-[#0a0a0a]">
+      <QuickAccessPanel onNodeCreate={addNode} isDarkMode={isDarkMode} />
+      <div className="flex-1 relative">
+        <CanvasHeader
+          title={title}
+          onTitleChange={handleTitleChange}
+          isDarkMode={isDarkMode}
+          onThemeToggle={handleThemeToggle}
+        />
+        <FlowCanvas
+          nodes={nodesWithHandlers}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeUpdate={handleNodeUpdate}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          isEditMode={isEditMode}
+          isDarkMode={isDarkMode}
+        />
+      </div>
+    </div>
+  );
+}
+
+function getInitialNodeData(type: NodeType): ImageUploadNodeData | DecodingAnalysisNodeData {
+  if (type === 'imageUpload') {
+    return {};
+  } else {
+    return {
+      status: 'idle',
+    };
+  }
+}
+

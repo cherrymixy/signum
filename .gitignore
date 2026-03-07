@@ -37,9 +37,6 @@ lerna-debug.log*
 *.swo
 *~
 
-# Uploads
-apps/api/uploads/*
-!apps/api/uploads/.gitkeep
-
-
-
+# Lock files (use pnpm-lock.yaml)
+package-lock.json
+yarn.lock
