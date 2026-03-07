@@ -137,7 +137,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         })),
 
     executeApproval: async (proposalId: string) => {
-        const { addNode, addEdge, updateAgent, addActivity, resolveApproval, nodes } = get();
+        const { addNode, addEdge, updateAgent, addActivity, resolveApproval, nodes, input } = get();
 
         // 승인 상태 업데이트
         resolveApproval(proposalId, true);
@@ -147,57 +147,93 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             (n) => n.type === 'revisionProposal' && n.data.content?.proposalId === proposalId
         );
 
-        // Revision Agent에 승인 완료 상태 적용
+        // Revision Agent 상태 업데이트
         updateAgent('revision', { status: 'idle', currentMessage: undefined });
-
-        // Revision 노드 상태 업데이트
         if (revisionNode) {
             get().updateNodeData(revisionNode.id, { status: 'approved' });
         }
 
-        // ─── Executor Agent 실행 ───
+        // intent 노드에서 의도 요약 가져오기
+        const intentNode = nodes.find((n) => n.type === 'intentAnalysis');
+        const intentSummary = intentNode?.data.content?.coreMessage || input.intentText || '';
 
-        // 1. 커서 이동
+        const approval = get().approvals.find((a) => a.proposalId === proposalId);
+        const suggestions = approval?.suggestions || [];
+
+        // ─── Executor Agent: 이미지 생성 ───
+
         const execX = 1850;
         const execY = 60;
         updateAgent('executor', {
             status: 'thinking',
             cursor: { x: execX, y: execY },
-            currentMessage: '승인된 수정안을 실행합니다...',
+            currentMessage: 'Gemini로 수정 이미지를 생성합니다...',
         });
-        addActivity('executor', 'thinking', '승인된 수정안을 실행합니다');
-
-        await new Promise((r) => setTimeout(r, 800));
-
-        // 2. Execution 노드 생성
-        updateAgent('executor', { status: 'creating', currentMessage: '실행 결과 노드를 생성합니다' });
-        addActivity('executor', 'creating', '실행 결과 노드 생성');
+        addActivity('executor', 'thinking', 'Gemini로 수정 이미지 생성 중...');
 
         const execNodeId = uuidv4();
-        const approval = get().approvals.find((a) => a.proposalId === proposalId);
-        const suggestionsText = approval?.suggestions
-            .map((s) => `[${s.area}] ${s.suggestion}`)
-            .join('\n') || '';
 
-        addNode({
-            id: execNodeId,
-            type: 'execution',
-            position: { x: execX + 30, y: execY + 40 },
-            data: {
-                agentId: 'executor',
-                title: '수정 실행 완료',
-                content: {
-                    summary: `${approval?.suggestions.length || 0}개 수정 제안이 승인되어 적용되었습니다.`,
-                    details: suggestionsText,
+        try {
+            // Gemini API 호출
+            const response = await fetch('/api/agents/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    imageBase64: input.imageBase64,
+                    imageMimeType: input.imageMimeType,
+                    suggestions,
+                    intentSummary,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.error?.message || '이미지 생성 실패');
+            }
+
+            // Execution 노드 생성 (생성된 이미지 포함)
+            updateAgent('executor', { status: 'creating', currentMessage: '수정 이미지 노드를 생성합니다' });
+            addActivity('executor', 'creating', '수정 이미지 노드 생성');
+
+            addNode({
+                id: execNodeId,
+                type: 'execution',
+                position: { x: execX + 30, y: execY + 40 },
+                data: {
+                    agentId: 'executor',
+                    title: '수정 이미지 생성 완료',
+                    content: {
+                        summary: result.data.description || `${suggestions.length}개 수정 제안이 반영된 이미지가 생성되었습니다.`,
+                        generatedImageBase64: result.data.generatedImageBase64,
+                        generatedImageMimeType: result.data.generatedImageMimeType,
+                    },
+                    createdAt: Date.now(),
+                    status: 'active',
                 },
-                createdAt: Date.now(),
-                status: 'active',
-            },
-        });
+            });
+        } catch (error: any) {
+            // 오류 시에도 노드 생성 (오류 표시)
+            updateAgent('executor', { status: 'error', currentMessage: error.message });
+            addActivity('executor', 'error', error.message);
+
+            addNode({
+                id: execNodeId,
+                type: 'execution',
+                position: { x: execX + 30, y: execY + 40 },
+                data: {
+                    agentId: 'executor',
+                    title: '이미지 생성 오류',
+                    content: { summary: error.message, error: true },
+                    createdAt: Date.now(),
+                    status: 'active',
+                },
+            });
+        }
 
         await new Promise((r) => setTimeout(r, 300));
 
-        // 3. Revision → Execution 엣지
+        // Revision → Execution 엣지
         if (revisionNode) {
             addEdge({
                 id: uuidv4(),
@@ -209,7 +245,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
 
         await new Promise((r) => setTimeout(r, 500));
 
-        // 4. Evaluation 노드 생성
+        // Evaluation 노드
         updateAgent('executor', { status: 'creating', currentMessage: '평가 노드를 생성합니다' });
         addActivity('executor', 'creating', '평가 노드 생성');
 
@@ -217,30 +253,21 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         addNode({
             id: evalNodeId,
             type: 'evaluation',
-            position: { x: execX + 30, y: execY + 260 },
+            position: { x: execX + 30, y: execY + 460 },
             data: {
                 title: '최종 평가',
-                content: {
-                    summary: '수정안이 성공적으로 적용되었습니다. 새로운 인코딩 방향이 반영된 결과를 확인하세요.',
-                },
+                content: { summary: '수정 이미지가 생성되었습니다. 원본과 비교하여 인코딩 개선 여부를 확인하세요.' },
                 createdAt: Date.now(),
                 status: 'active',
             },
         });
 
         await new Promise((r) => setTimeout(r, 300));
+        addEdge({ id: uuidv4(), source: execNodeId, target: evalNodeId, animated: true });
 
-        // 5. Execution → Evaluation 엣지
-        addEdge({
-            id: uuidv4(),
-            source: execNodeId,
-            target: evalNodeId,
-            animated: true,
-        });
-
-        // 6. Executor 완료
+        // 완료
         updateAgent('executor', { status: 'idle', currentMessage: undefined });
-        addActivity('executor', 'idle', '실행 완료');
+        addActivity('executor', 'idle', '이미지 생성 완료');
     },
 
     handleSSEEvent: (event) => {
