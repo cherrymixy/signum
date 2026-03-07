@@ -55,6 +55,12 @@ const NODE_STYLE_MAP: Record<string, NodeStyleConfig> = {
     edgeColor: '#ff9800',
     portLabel: 'context',
   },
+  agentPipeline: {
+    title: 'Agent Pipeline',
+    portColor: '#a78bfa',
+    edgeColor: '#a78bfa',
+    portLabel: 'pipeline',
+  },
 };
 
 /**
@@ -81,12 +87,12 @@ export function getEdgeLabel(
 ): string {
   const sourceStyle = getNodeStyle(sourceType, sourceDataType);
   const targetStyle = getNodeStyle(targetType, targetDataType);
-  
+
   // 포트 라벨이 있으면 사용
   if (sourceStyle.portLabel) {
     return sourceStyle.portLabel;
   }
-  
+
   // 기본 규칙
   if (sourceType === 'imageUpload' && targetType === 'decodingAnalysis') {
     return 'image';
@@ -94,7 +100,7 @@ export function getEdgeLabel(
   if (sourceType === 'decodingAnalysis') {
     return 'decoded context';
   }
-  
+
   return '';
 }
 

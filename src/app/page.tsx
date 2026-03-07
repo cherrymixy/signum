@@ -10,7 +10,7 @@ import {
   applyEdgeChanges,
 } from 'reactflow';
 import type { Node, Edge } from '@/types';
-import { NodeType, ImageUploadNodeData, DecodingAnalysisNodeData } from '@/types';
+import { NodeType, ImageUploadNodeData, DecodingAnalysisNodeData, AgentPipelineNodeData } from '@/types';
 import { useCanvasState } from '@/hooks/useCanvasState';
 import FlowCanvas from '@/components/Canvas/FlowCanvas';
 import QuickAccessPanel from '@/components/QuickAccess/QuickAccessPanel';
@@ -71,7 +71,7 @@ export default function Home() {
 
   // 노드 업데이트 핸들러
   const handleNodeUpdate = useCallback(
-    (nodeId: string, data: Partial<ImageUploadNodeData | DecodingAnalysisNodeData>) => {
+    (nodeId: string, data: Partial<ImageUploadNodeData | DecodingAnalysisNodeData | AgentPipelineNodeData>) => {
       updateNode(nodeId, data);
     },
     [updateNode]
@@ -188,7 +188,7 @@ export default function Home() {
       let connectedImageNodeId: string | undefined;
       let connectedImageNodeData: { imageBase64?: string; imageMimeType?: string } | undefined;
 
-      if (node.type === 'decodingAnalysis') {
+      if (node.type === 'decodingAnalysis' || node.type === 'agentPipeline') {
         const connectedEdge = edges.find((e) => e.target === node.id);
         if (connectedEdge) {
           connectedImageNodeId = connectedEdge.source;
@@ -207,7 +207,7 @@ export default function Home() {
         data: {
           ...baseData,
           onUpdate: (data: Partial<any>) => handleNodeUpdate(node.id, data),
-          ...(node.type === 'decodingAnalysis' && {
+          ...((node.type === 'decodingAnalysis' || node.type === 'agentPipeline') && {
             connectedImageNodeId,
             connectedImageNodeData,
           }),
@@ -243,9 +243,13 @@ export default function Home() {
   );
 }
 
-function getInitialNodeData(type: NodeType): ImageUploadNodeData | DecodingAnalysisNodeData {
+function getInitialNodeData(type: NodeType): ImageUploadNodeData | DecodingAnalysisNodeData | AgentPipelineNodeData {
   if (type === 'imageUpload') {
     return {};
+  } else if (type === 'agentPipeline') {
+    return {
+      status: 'idle',
+    };
   } else {
     return {
       status: 'idle',

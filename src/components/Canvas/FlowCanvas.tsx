@@ -15,6 +15,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import ImageUploadNode from '../NodeComponents/ImageUploadNode';
 import DecodingAnalysisNode from '../NodeComponents/DecodingAnalysisNode';
+import AgentPipelineNode from '../NodeComponents/AgentPipelineNode';
 import CustomEdge from './CustomEdge';
 import CustomControls from './CustomControls';
 import { getEdgeLabel, getEdgeColor } from '@/lib/nodeStyles';
@@ -22,6 +23,7 @@ import { getEdgeLabel, getEdgeColor } from '@/lib/nodeStyles';
 const nodeTypes = {
   imageUpload: ImageUploadNode,
   decodingAnalysis: DecodingAnalysisNode,
+  agentPipeline: AgentPipelineNode,
 };
 
 const edgeTypes = {
