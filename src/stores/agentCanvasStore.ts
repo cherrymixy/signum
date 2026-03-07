@@ -167,14 +167,14 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         updateAgent('executor', {
             status: 'thinking',
             cursor: { x: execX, y: execY },
-            currentMessage: 'Gemini로 수정 이미지를 생성합니다...',
+            currentMessage: 'DALL-E로 수정 이미지를 생성합니다...',
         });
-        addActivity('executor', 'thinking', 'Gemini로 수정 이미지 생성 중...');
+        addActivity('executor', 'thinking', 'DALL-E로 수정 이미지 생성 중...');
 
         const execNodeId = uuidv4();
 
         try {
-            // Gemini API 호출
+            // OpenAI API 호출
             const response = await fetch('/api/agents/execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
