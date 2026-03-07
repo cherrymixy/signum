@@ -1,5 +1,5 @@
-import { GoogleGenAI } from '@google/genai';
-import { SuggestionItem } from '@/types';
+import OpenAI from 'openai';
+import { SuggestionItem, IntentAnalysis, GapAnalysis } from '@/types';
 
 export interface ExecutorAgentInput {
     imageBase64: string;
@@ -15,73 +15,67 @@ export interface ExecutorAgentResult {
 }
 
 /**
- * Executor Agent — Gemini로 수정안을 반영한 이미지 생성
- * SDK: @google/genai (공식 최신)
- * 모델: gemini-3.1-flash-image-preview (Nano Banana 2 — 공식 권장)
+ * Executor Agent — OpenAI DALL-E 3로 수정안을 반영한 이미지 생성
+ * 
+ * 1. GPT-4o-mini로 수정안을 바탕으로 상세한 이미지 생성 프롬프트 작성
+ * 2. DALL-E 3로 이미지 생성
  */
 export async function runExecutorAgent(
     input: ExecutorAgentInput
 ): Promise<ExecutorAgentResult> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY가 설정되지 않았습니다.');
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY가 설정되지 않았습니다.');
 
-    const ai = new GoogleGenAI({ apiKey });
+    const openai = new OpenAI({ apiKey });
 
     const suggestionsText = input.suggestions
         .map((s, i) => `${i + 1}. [${s.area}] ${s.suggestion} (기대 효과: ${s.expectedImpact})`)
         .join('\n');
 
-    const prompt = `You are an expert image editor. Edit the provided image based on the following modification suggestions to better convey the creator's intent.
-
-Creator's Intent: ${input.intentSummary}
-
-Modification Suggestions:
-${suggestionsText}
-
-Please apply these suggestions to edit the image. Keep the core composition but adjust according to the suggestions above. Return the edited image.`;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-image-preview',
-        contents: [
+    // Step 1: GPT-4o-mini로 원본 이미지를 분석하고 수정안 반영한 DALL-E 프롬프트 생성
+    const promptResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+            {
+                role: 'system',
+                content: `You are an expert at writing DALL-E 3 image generation prompts. Given an original image and modification suggestions, create a detailed prompt that describes what the MODIFIED image should look like. The prompt should incorporate all the suggestions while maintaining the core composition of the original. Write in English. Be very specific about visual details, colors, composition, lighting, and mood. Output ONLY the prompt, nothing else.`,
+            },
             {
                 role: 'user',
-                parts: [
+                content: [
                     {
-                        inlineData: {
-                            mimeType: input.imageMimeType,
-                            data: input.imageBase64,
-                        },
+                        type: 'image_url',
+                        image_url: { url: `data:${input.imageMimeType};base64,${input.imageBase64}` },
                     },
-                    { text: prompt },
+                    {
+                        type: 'text',
+                        text: `Creator's Intent: ${input.intentSummary}\n\nModification Suggestions:\n${suggestionsText}\n\nBased on the original image above and these modification suggestions, write a detailed DALL-E 3 prompt that describes the modified version of this image.`,
+                    },
                 ],
             },
         ],
+        max_tokens: 1000,
     });
 
-    const parts = response.candidates?.[0]?.content?.parts;
-    if (!parts) throw new Error('Gemini 응답이 비어있습니다.');
+    const dallePrompt = promptResponse.choices[0]?.message?.content;
+    if (!dallePrompt) throw new Error('이미지 프롬프트 생성 실패');
 
-    let generatedImageBase64 = '';
-    let generatedImageMimeType = 'image/png';
-    let description = '';
+    // Step 2: DALL-E 3로 이미지 생성
+    const imageResponse = await openai.images.generate({
+        model: 'dall-e-3',
+        prompt: dallePrompt,
+        n: 1,
+        size: '1024x1024',
+        response_format: 'b64_json',
+        quality: 'standard',
+    });
 
-    for (const part of parts) {
-        if (part.inlineData) {
-            generatedImageBase64 = part.inlineData.data || '';
-            generatedImageMimeType = part.inlineData.mimeType || 'image/png';
-        }
-        if (part.text) {
-            description = part.text;
-        }
-    }
-
-    if (!generatedImageBase64) {
-        throw new Error('이미지가 생성되지 않았습니다. 다시 시도해주세요.');
-    }
+    const imageData = imageResponse.data?.[0];
+    if (!imageData?.b64_json) throw new Error('이미지 생성 실패');
 
     return {
-        generatedImageBase64,
-        generatedImageMimeType,
-        description,
+        generatedImageBase64: imageData.b64_json,
+        generatedImageMimeType: 'image/png',
+        description: dallePrompt,
     };
 }
