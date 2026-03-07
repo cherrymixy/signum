@@ -46,6 +46,7 @@ interface AgentCanvasState {
     addActivity: (agentId: AgentId, action: string, detail?: string) => void;
     addApproval: (item: ApprovalItem) => void;
     resolveApproval: (proposalId: string, approved: boolean) => void;
+    executeApproval: (proposalId: string) => void;
     handleSSEEvent: (event: SSEEvent) => void;
     startPipeline: () => void;
     resetCanvas: () => void;
@@ -134,6 +135,113 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                     : a
             ),
         })),
+
+    executeApproval: async (proposalId: string) => {
+        const { addNode, addEdge, updateAgent, addActivity, resolveApproval, nodes } = get();
+
+        // 승인 상태 업데이트
+        resolveApproval(proposalId, true);
+
+        // revision proposal 노드 찾기
+        const revisionNode = nodes.find(
+            (n) => n.type === 'revisionProposal' && n.data.content?.proposalId === proposalId
+        );
+
+        // Revision Agent에 승인 완료 상태 적용
+        updateAgent('revision', { status: 'idle', currentMessage: undefined });
+
+        // Revision 노드 상태 업데이트
+        if (revisionNode) {
+            get().updateNodeData(revisionNode.id, { status: 'approved' });
+        }
+
+        // ─── Executor Agent 실행 ───
+
+        // 1. 커서 이동
+        const execX = 1850;
+        const execY = 60;
+        updateAgent('executor', {
+            status: 'thinking',
+            cursor: { x: execX, y: execY },
+            currentMessage: '승인된 수정안을 실행합니다...',
+        });
+        addActivity('executor', 'thinking', '승인된 수정안을 실행합니다');
+
+        await new Promise((r) => setTimeout(r, 800));
+
+        // 2. Execution 노드 생성
+        updateAgent('executor', { status: 'creating', currentMessage: '실행 결과 노드를 생성합니다' });
+        addActivity('executor', 'creating', '실행 결과 노드 생성');
+
+        const execNodeId = uuidv4();
+        const approval = get().approvals.find((a) => a.proposalId === proposalId);
+        const suggestionsText = approval?.suggestions
+            .map((s) => `[${s.area}] ${s.suggestion}`)
+            .join('\n') || '';
+
+        addNode({
+            id: execNodeId,
+            type: 'execution',
+            position: { x: execX + 30, y: execY + 40 },
+            data: {
+                agentId: 'executor',
+                title: '수정 실행 완료',
+                content: {
+                    summary: `${approval?.suggestions.length || 0}개 수정 제안이 승인되어 적용되었습니다.`,
+                    details: suggestionsText,
+                },
+                createdAt: Date.now(),
+                status: 'active',
+            },
+        });
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        // 3. Revision → Execution 엣지
+        if (revisionNode) {
+            addEdge({
+                id: uuidv4(),
+                source: revisionNode.id,
+                target: execNodeId,
+                animated: true,
+            });
+        }
+
+        await new Promise((r) => setTimeout(r, 500));
+
+        // 4. Evaluation 노드 생성
+        updateAgent('executor', { status: 'creating', currentMessage: '평가 노드를 생성합니다' });
+        addActivity('executor', 'creating', '평가 노드 생성');
+
+        const evalNodeId = uuidv4();
+        addNode({
+            id: evalNodeId,
+            type: 'evaluation',
+            position: { x: execX + 30, y: execY + 260 },
+            data: {
+                title: '최종 평가',
+                content: {
+                    summary: '수정안이 성공적으로 적용되었습니다. 새로운 인코딩 방향이 반영된 결과를 확인하세요.',
+                },
+                createdAt: Date.now(),
+                status: 'active',
+            },
+        });
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        // 5. Execution → Evaluation 엣지
+        addEdge({
+            id: uuidv4(),
+            source: execNodeId,
+            target: evalNodeId,
+            animated: true,
+        });
+
+        // 6. Executor 완료
+        updateAgent('executor', { status: 'idle', currentMessage: undefined });
+        addActivity('executor', 'idle', '실행 완료');
+    },
 
     handleSSEEvent: (event) => {
         const { addNode, updateNodeData, addEdge, updateAgent, addActivity, addApproval, resolveApproval } = get();

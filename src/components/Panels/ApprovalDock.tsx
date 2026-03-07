@@ -5,6 +5,7 @@ import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 
 export default function ApprovalDock() {
     const approvals = useAgentCanvasStore((s) => s.approvals);
+    const executeApproval = useAgentCanvasStore((s) => s.executeApproval);
     const resolveApproval = useAgentCanvasStore((s) => s.resolveApproval);
 
     const pending = approvals.filter((a) => a.status === 'pending');
@@ -40,7 +41,7 @@ export default function ApprovalDock() {
                         </div>
                         <div className="flex gap-2 shrink-0">
                             <button
-                                onClick={() => resolveApproval(item.proposalId, true)}
+                                onClick={() => executeApproval(item.proposalId)}
                                 className="px-3 py-1.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
                             >
                                 Approve
