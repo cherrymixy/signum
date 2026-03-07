@@ -1,154 +1,47 @@
 import OpenAI from 'openai';
 import { SSEEmitter, delay } from '@/lib/sseHelpers';
 import { getNodePosition } from '@/lib/layoutEngine';
+import {
+    moveTo, fidget, wander, scan, revisit,
+    grabFromToolbox, connectWithCursor,
+} from '@/lib/cursorBehaviors';
 import { runIntentAgent } from './intentAgent';
 import { runDecodingAgent } from './decodingAgent';
 import { runGapAnalystAgent } from './gapAnalystAgent';
 import { runEncodingSuggestionAgent } from './encodingSuggestionAgent';
-import { PipelineInput, CanvasNode, CanvasNodeType, AgentId } from '@/types';
+import { PipelineInput, CanvasNode, AgentId } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
-// ─── 도구상자 슬롯 위치 (아이콘별 Y 오프셋) ───
-const TOOLBOX_X = 45;
-const TOOLBOX_SLOT_Y: Record<string, number> = {
-    intentAnalysis: 62,
-    decodingHypothesis: 86,
-    gapAnalysis: 110,
-    revisionProposal: 134,
-    execution: 158,
-    evaluation: 182,
-};
-
-// ─── 자연스러운 커서 이동 유틸 ───
-
-/** 랜덤 jitter — 사람처럼 약간의 흔들림 */
-function jitter(amplitude: number): number {
-    return (Math.random() - 0.5) * amplitude;
-}
-
 /**
- * 곡선 웨이포인트 경로 생성 (Bézier-like)
- * 시작→끝 사이에 중간점 2~3개를 곡선으로 배치
+ * API 호출과 동시에 에이전트 커서가 주변을 탐색하는 패턴
+ * Promise.all로 API 호출 + wander를 동시 실행
  */
-function generateNaturalPath(
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-    steps: number = 4,
-): { x: number; y: number }[] {
-    const points: { x: number; y: number }[] = [];
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    // 곡선 방향: 살짝 위로 휘는 아크
-    const curveOffsetX = dy * 0.15 + jitter(20);
-    const curveOffsetY = -Math.abs(dx) * 0.1 + jitter(15);
-
-    for (let i = 1; i <= steps; i++) {
-        const t = i / (steps + 1);
-        // Quadratic Bézier (control point = midpoint + offset)
-        const cx = from.x + dx * 0.5 + curveOffsetX;
-        const cy = from.y + dy * 0.5 + curveOffsetY;
-        const x = (1 - t) * (1 - t) * from.x + 2 * (1 - t) * t * cx + t * t * to.x + jitter(5);
-        const y = (1 - t) * (1 - t) * from.y + 2 * (1 - t) * t * cy + t * t * to.y + jitter(5);
-        points.push({ x: Math.round(x), y: Math.round(y) });
-    }
-    // 최종 정확한 목표 좌표
-    points.push({ x: to.x, y: to.y });
-    return points;
-}
-
-/**
- * 웨이포인트 경로를 따라 커서 이동 (가감속)
- * 처음/끝은 느리게, 중간은 빠르게 — 사람 손 움직임 모사
- */
-async function moveCursorNaturally(
+async function thinkWhileCalling<T>(
     emitter: SSEEmitter,
     agentId: AgentId,
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-    totalMs: number = 450,
-) {
-    const waypoints = generateNaturalPath(from, to);
-    const n = waypoints.length;
-    // ease-in-out 타이밍: 양 끝 느리게
-    const timings: number[] = [];
-    for (let i = 0; i < n; i++) {
-        const t = i / (n - 1);
-        // sine ease-in-out
-        const w = 0.5 - 0.5 * Math.cos(Math.PI * t);
-        timings.push(w);
-    }
-    const totalWeight = timings.reduce((a, b) => a + b, 0);
+    cursorPos: { x: number; y: number },
+    interestPoints: { x: number; y: number }[],
+    apiCall: () => Promise<T>,
+): Promise<{ result: T; cursorPos: { x: number; y: number } }> {
+    // wander는 API가 끝날 때까지 계속 (최대 15초)
+    let wanderDone = false;
+    let lastPos = { ...cursorPos };
 
-    for (let i = 0; i < n; i++) {
-        emitter.emit({ type: 'cursor:move', agentId, x: waypoints[i].x, y: waypoints[i].y });
-        const segmentTime = Math.max(40, Math.round((timings[i] / totalWeight) * totalMs));
-        await delay(segmentTime);
-    }
-}
-
-/**
- * 에이전트가 도구상자에서 노드를 가져오는 시퀀스 (자연스러운 버전)
- * 
- * 1. 현재 위치 → 도구상자 아이콘으로 자연스럽게 이동
- * 2. 잠깐 멈춤 (아이콘 위에서 hover)
- * 3. Grab
- * 4. 노드를 들고 목표 위치까지 자연스럽게 이동
- * 5. 목표 위치에서 잠깐 멈춤 (배치 확인)
- * 6. Drop — 커서의 정확한 좌표에 노드 생성
- */
-async function grabAndPlace(
-    emitter: SSEEmitter,
-    agentId: AgentId,
-    nodeType: CanvasNodeType,
-    cursorFrom: { x: number; y: number },
-    dropTarget: { x: number; y: number },
-) {
-    const toolboxTarget = {
-        x: TOOLBOX_X,
-        y: TOOLBOX_SLOT_Y[nodeType] || 100,
+    const wanderLoop = async () => {
+        while (!wanderDone) {
+            lastPos = await wander(emitter, agentId, lastPos, interestPoints, 2500);
+            if (!wanderDone) {
+                lastPos = await fidget(emitter, agentId, lastPos, 3, 10);
+            }
+        }
     };
 
-    // 1. 도구상자까지 자연스럽게 이동
-    await moveCursorNaturally(emitter, agentId, cursorFrom, toolboxTarget, 400);
+    const [result] = await Promise.all([
+        apiCall().then((r) => { wanderDone = true; return r; }),
+        wanderLoop(),
+    ]);
 
-    // 2. hover 멈춤
-    await delay(180);
-
-    // 3. Grab
-    emitter.emit({ type: 'cursor:grab', agentId, nodeType });
-    await delay(250);
-
-    // 4. carrying 상태로 목표 위치까지 이동 (노드 들고)
-    emitter.emit({ type: 'agent:status', agentId, status: 'carrying', message: `노드를 배치합니다` });
-    await moveCursorNaturally(emitter, agentId, toolboxTarget, dropTarget, 550);
-
-    // 5. 배치 확인 멈춤
-    await delay(150);
-
-    // 6. Drop
-    emitter.emit({ type: 'cursor:drop', agentId });
-    await delay(120);
-}
-
-/**
- * 에이전트가 두 노드를 연결 — source 쪽에서 target 쪽까지 커서 이동 후 엣지 생성
- */
-async function connectNodes(
-    emitter: SSEEmitter,
-    agentId: AgentId,
-    sourcePos: { x: number; y: number },
-    targetPos: { x: number; y: number },
-    edge: { id: string; source: string; target: string; animated: boolean },
-) {
-    const from = { x: sourcePos.x + 150, y: sourcePos.y + 40 };
-    const to = { x: targetPos.x + 10, y: targetPos.y + 40 };
-
-    // 커서를 source → target으로 자연스럽게 이동
-    emitter.emit({ type: 'cursor:connect', agentId, fromX: from.x, fromY: from.y, toX: to.x, toY: to.y });
-    await moveCursorNaturally(emitter, agentId, from, to, 350);
-    await delay(80);
-    emitter.emit({ type: 'edge:create', edge });
-    await delay(100);
+    return { result, cursorPos: lastPos };
 }
 
 // ═══════════════════════════════════════════
@@ -168,9 +61,13 @@ export async function runStreamingPipeline(
 
     const openai = new OpenAI({ apiKey });
 
+    // 생성된 노드 위치를 추적 (에이전트 탐색 용)
+    const placedNodes: { x: number; y: number }[] = [];
+
     // ─── 이미지 입력 노드 ───
     const imageNodeId = uuidv4();
     const imagePos = getNodePosition('imageInput');
+    placedNodes.push(imagePos);
     emitter.emit({
         type: 'node:create',
         node: {
@@ -194,8 +91,7 @@ export async function runStreamingPipeline(
 
     let prevNodeId = imageNodeId;
     let prevNodePos = imagePos;
-    // 에이전트 커서 현재 위치 추적
-    let cursorPos = { x: imagePos.x + 120, y: imagePos.y + 60 };
+    let cursor = { x: imagePos.x + 120, y: imagePos.y + 50 };
 
     try {
         // ═══════════════════════════════════════════
@@ -203,67 +99,77 @@ export async function runStreamingPipeline(
         // ═══════════════════════════════════════════
         const intentPos = getNodePosition('intentAnalysis');
 
-        // 이미지 노드 근처로 자연스럽게 이동하며 분석 시작
-        emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'thinking', message: '창작 의도를 분석하고 있습니다...' });
-        await moveCursorNaturally(emitter, 'intent', cursorPos, { x: imagePos.x + 100, y: imagePos.y + 30 }, 350);
-        cursorPos = { x: imagePos.x + 100, y: imagePos.y + 30 };
+        emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'thinking', message: '이미지를 살펴보고 있습니다...' });
 
-        const intentResult = await runIntentAgent(openai, {
-            imageBase64: input.imageBase64,
-            imageMimeType: input.imageMimeType,
-            intentText: input.intentText,
-        });
+        // 이미지 노드 주변을 탐색하며 API 호출
+        const intentOut = await thinkWhileCalling(
+            emitter, 'intent', cursor,
+            [imagePos, { x: imagePos.x + 180, y: imagePos.y }, { x: imagePos.x, y: imagePos.y + 100 }],
+            () => runIntentAgent(openai, {
+                imageBase64: input.imageBase64,
+                imageMimeType: input.imageMimeType,
+                intentText: input.intentText,
+            }),
+        );
+        cursor = intentOut.cursorPos;
 
-        // 도구상자에서 노드 가져와 배치
+        // 분석 완료 → 도구상자에서 노드 가져오기
+        emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'creating', message: '의도 분석 노드를 가져옵니다' });
         const intentDrop = { x: intentPos.x + 20, y: intentPos.y + 15 };
-        await grabAndPlace(emitter, 'intent', 'intentAnalysis', cursorPos, intentDrop);
-        cursorPos = intentDrop;
+        cursor = await grabFromToolbox(emitter, 'intent', 'intentAnalysis', cursor, intentDrop);
 
         const intentNodeId = uuidv4();
         emitter.emit({
             type: 'node:create',
             node: {
-                id: intentNodeId,
-                type: 'intentAnalysis',
-                position: intentPos,
-                data: { agentId: 'intent', title: '의도 분석', content: intentResult, createdAt: Date.now(), status: 'active' },
+                id: intentNodeId, type: 'intentAnalysis', position: intentPos,
+                data: { agentId: 'intent', title: '의도 분석', content: intentOut.result, createdAt: Date.now(), status: 'active' },
             },
         });
-        await delay(200);
+        placedNodes.push(intentPos);
+        await delay(180);
 
-        await connectNodes(emitter, 'intent', prevNodePos, intentPos, {
+        // 연결 + 결과 확인 (소스↔새노드 왔다갔다)
+        cursor = await connectWithCursor(emitter, 'intent', cursor, prevNodePos, intentPos, {
             id: uuidv4(), source: prevNodeId, target: intentNodeId, animated: true,
         });
+        cursor = await revisit(emitter, 'intent', cursor, prevNodePos, intentPos);
+
         emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'idle' });
         prevNodeId = intentNodeId;
         prevNodePos = intentPos;
 
         // ═══════════════════════════════════════════
-        // Step 2: Decoding Agent — 👁️
+        // Step 2: Decoder Agent — 👁️
         // ═══════════════════════════════════════════
-        cursorPos = { x: intentPos.x + 140, y: intentPos.y + 30 };
-        emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'thinking', message: '타겟 관점에서 해석 가설을 생성합니다...' });
-        await moveCursorNaturally(emitter, 'decoder', { x: TOOLBOX_X, y: TOOLBOX_SLOT_Y['decodingHypothesis'] }, { x: intentPos.x + 120, y: intentPos.y + 20 }, 300);
+        cursor = { x: intentPos.x + 140, y: intentPos.y + 30 };
+        emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'thinking', message: '타겟 관점에서 해석을 생성합니다...' });
 
-        const decodingResult = await runDecodingAgent(openai, {
-            imageBase64: input.imageBase64,
-            imageMimeType: input.imageMimeType,
-            intentAnalysis: intentResult,
-            targetPreset: input.targetPreset,
-            contextPreset: input.contextPreset,
-        });
+        // 기존 노드들 훑어보며 API 호출
+        const decodingOut = await thinkWhileCalling(
+            emitter, 'decoder', cursor,
+            [...placedNodes, { x: intentPos.x + 200, y: intentPos.y - 50 }],
+            () => runDecodingAgent(openai, {
+                imageBase64: input.imageBase64,
+                imageMimeType: input.imageMimeType,
+                intentAnalysis: intentOut.result,
+                targetPreset: input.targetPreset,
+                contextPreset: input.contextPreset,
+            }),
+        );
+        cursor = decodingOut.cursorPos;
 
         const hypothesisNodeIds: string[] = [];
         const hypothesisPositions: { x: number; y: number }[] = [];
 
-        for (let i = 0; i < decodingResult.hypotheses.length; i++) {
-            const h = decodingResult.hypotheses[i];
+        for (let i = 0; i < decodingOut.result.hypotheses.length; i++) {
+            const h = decodingOut.result.hypotheses[i];
             const hPos = getNodePosition('decodingHypothesis', i);
             hypothesisPositions.push(hPos);
-            const hDrop = { x: hPos.x + 20, y: hPos.y + 15 };
 
-            await grabAndPlace(emitter, 'decoder', 'decodingHypothesis', cursorPos, hDrop);
-            cursorPos = hDrop;
+            emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'creating', message: `가설 ${i + 1} 노드를 배치합니다` });
+            const hDrop = { x: hPos.x + 20, y: hPos.y + 15 };
+            cursor = await grabFromToolbox(emitter, 'decoder', 'decodingHypothesis', cursor, hDrop);
 
             const hNodeId = uuidv4();
             hypothesisNodeIds.push(hNodeId);
@@ -271,17 +177,21 @@ export async function runStreamingPipeline(
             emitter.emit({
                 type: 'node:create',
                 node: {
-                    id: hNodeId,
-                    type: 'decodingHypothesis',
-                    position: hPos,
+                    id: hNodeId, type: 'decodingHypothesis', position: hPos,
                     data: { agentId: 'decoder', title: `가설 ${i + 1} (${(h.probability * 100).toFixed(0)}%)`, content: h, createdAt: Date.now(), status: 'active' },
                 },
             });
-            await delay(120);
+            placedNodes.push(hPos);
+            await delay(100);
 
-            await connectNodes(emitter, 'decoder', prevNodePos, hPos, {
+            cursor = await connectWithCursor(emitter, 'decoder', cursor, prevNodePos, hPos, {
                 id: uuidv4(), source: prevNodeId, target: hNodeId, animated: true,
             });
+
+            // 가설 배치 후 이전 가설도 다시 확인 (비교하는 느낌)
+            if (i > 0) {
+                cursor = await revisit(emitter, 'decoder', cursor, hypothesisPositions[i - 1], hPos);
+            }
         }
         emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'idle' });
 
@@ -290,79 +200,94 @@ export async function runStreamingPipeline(
         // ═══════════════════════════════════════════
         const gapPos = getNodePosition('gapAnalysis');
         emitter.emit({ type: 'agent:status', agentId: 'gap', status: 'thinking', message: '의도-해석 차이를 분석합니다...' });
-        await moveCursorNaturally(emitter, 'gap', cursorPos, { x: hypothesisPositions[0]?.x + 100 || 500, y: hypothesisPositions[0]?.y || 100 }, 350);
-        cursorPos = { x: hypothesisPositions[0]?.x + 100 || 500, y: hypothesisPositions[0]?.y || 100 };
 
-        const gapResult = await runGapAnalystAgent(openai, {
-            intentAnalysis: intentResult,
-            decodingResult: decodingResult,
-        });
+        // 의도 노드와 가설 노드들 사이를 왔다갔다 하며 비교 분석
+        const gapOut = await thinkWhileCalling(
+            emitter, 'gap', cursor,
+            [intentPos, ...hypothesisPositions, imagePos],
+            () => runGapAnalystAgent(openai, {
+                intentAnalysis: intentOut.result,
+                decodingResult: decodingOut.result,
+            }),
+        );
+        cursor = gapOut.cursorPos;
 
-        const gapDrop = { x: gapPos.x + 20, y: gapPos.y + 15 };
-        await grabAndPlace(emitter, 'gap', 'gapAnalysis', cursorPos, gapDrop);
-        cursorPos = gapDrop;
+        // 기존 노드들 빠르게 스캔 후 Gap 노드 배치
+        cursor = await scan(emitter, 'gap', cursor, [intentPos, ...hypothesisPositions]);
+
+        emitter.emit({ type: 'agent:status', agentId: 'gap', status: 'creating', message: 'Gap 분석 노드를 배치합니다' });
+        cursor = await grabFromToolbox(emitter, 'gap', 'gapAnalysis', cursor, { x: gapPos.x + 20, y: gapPos.y + 15 });
 
         const gapNodeId = uuidv4();
         emitter.emit({
             type: 'node:create',
             node: {
-                id: gapNodeId,
-                type: 'gapAnalysis',
-                position: gapPos,
-                data: { agentId: 'gap', title: `Gap 분석 (일치도 ${gapResult.overallAlignmentScore}%)`, content: gapResult, createdAt: Date.now(), status: 'active' },
+                id: gapNodeId, type: 'gapAnalysis', position: gapPos,
+                data: { agentId: 'gap', title: `Gap 분석 (일치도 ${gapOut.result.overallAlignmentScore}%)`, content: gapOut.result, createdAt: Date.now(), status: 'active' },
             },
         });
-        await delay(200);
+        placedNodes.push(gapPos);
+        await delay(180);
 
+        // 각 가설에서 Gap으로 연결
         for (let i = 0; i < hypothesisNodeIds.length; i++) {
-            await connectNodes(emitter, 'gap', hypothesisPositions[i], gapPos, {
+            cursor = await connectWithCursor(emitter, 'gap', cursor, hypothesisPositions[i], gapPos, {
                 id: uuidv4(), source: hypothesisNodeIds[i], target: gapNodeId, animated: true,
             });
         }
+
+        // Gap 노드와 의도 노드를 비교 확인
+        cursor = await revisit(emitter, 'gap', cursor, intentPos, gapPos);
         emitter.emit({ type: 'agent:status', agentId: 'gap', status: 'idle' });
 
         // ═══════════════════════════════════════════
         // Step 4: Revision Agent — 🔧
         // ═══════════════════════════════════════════
         const revisionPos = getNodePosition('revisionProposal');
-        emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'thinking', message: '수정 방향을 제안합니다...' });
-        await moveCursorNaturally(emitter, 'revision', cursorPos, { x: gapPos.x + 100, y: gapPos.y + 20 }, 350);
-        cursorPos = { x: gapPos.x + 100, y: gapPos.y + 20 };
+        emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'thinking', message: '수정 방향을 고민합니다...' });
 
-        const suggestionResult = await runEncodingSuggestionAgent(openai, {
-            imageBase64: input.imageBase64,
-            imageMimeType: input.imageMimeType,
-            intentAnalysis: intentResult,
-            gapAnalysis: gapResult,
-        });
+        // Gap 분석, 의도 분석, 원본 이미지를 돌아보며 수정안 생성
+        const revOut = await thinkWhileCalling(
+            emitter, 'revision', cursor,
+            [gapPos, intentPos, imagePos, ...hypothesisPositions.slice(0, 2)],
+            () => runEncodingSuggestionAgent(openai, {
+                imageBase64: input.imageBase64,
+                imageMimeType: input.imageMimeType,
+                intentAnalysis: intentOut.result,
+                gapAnalysis: gapOut.result,
+            }),
+        );
+        cursor = revOut.cursorPos;
 
-        const revDrop = { x: revisionPos.x + 20, y: revisionPos.y + 15 };
-        await grabAndPlace(emitter, 'revision', 'revisionProposal', cursorPos, revDrop);
-        cursorPos = revDrop;
+        // 수정안 노드 배치
+        emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'creating', message: '수정 제안 노드를 배치합니다' });
+        cursor = await grabFromToolbox(emitter, 'revision', 'revisionProposal', cursor, { x: revisionPos.x + 20, y: revisionPos.y + 15 });
 
         const revisionNodeId = uuidv4();
         const proposalId = uuidv4();
         emitter.emit({
             type: 'node:create',
             node: {
-                id: revisionNodeId,
-                type: 'revisionProposal',
-                position: revisionPos,
-                data: { agentId: 'revision', title: '수정 제안', content: { ...suggestionResult, proposalId }, createdAt: Date.now(), status: 'creating' },
+                id: revisionNodeId, type: 'revisionProposal', position: revisionPos,
+                data: { agentId: 'revision', title: '수정 제안', content: { ...revOut.result, proposalId }, createdAt: Date.now(), status: 'creating' },
             },
         });
-        await delay(200);
+        placedNodes.push(revisionPos);
+        await delay(180);
 
-        await connectNodes(emitter, 'revision', gapPos, revisionPos, {
+        cursor = await connectWithCursor(emitter, 'revision', cursor, gapPos, revisionPos, {
             id: uuidv4(), source: gapNodeId, target: revisionNodeId, animated: true,
         });
 
+        // 최종 확인: 원본 이미지 → Gap → 수정안 흐름 빠르게 훑기
+        cursor = await scan(emitter, 'revision', cursor, [imagePos, gapPos, revisionPos]);
+
         emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'waitingApproval', message: '사용자 승인을 기다립니다...' });
-        emitter.emit({ type: 'approval:request', proposalId, suggestions: suggestionResult.suggestions });
+        emitter.emit({ type: 'approval:request', proposalId, suggestions: revOut.result.suggestions });
 
         emitter.emit({
             type: 'pipeline:done',
-            summary: `일치도 ${gapResult.overallAlignmentScore}% | Gap ${gapResult.gaps.length}개 발견 | 제안 ${suggestionResult.suggestions.length}개 생성`,
+            summary: `일치도 ${gapOut.result.overallAlignmentScore}% | Gap ${gapOut.result.gaps.length}개 발견 | 제안 ${revOut.result.suggestions.length}개 생성`,
         });
 
     } catch (error: any) {
