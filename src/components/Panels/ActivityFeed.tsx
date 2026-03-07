@@ -9,6 +9,8 @@ import { AgentStatus } from '@/types';
 const STATUS_LABELS: Record<AgentStatus, string> = {
     idle: '대기',
     thinking: '분석 중',
+    grabbing: '노드 선택',
+    carrying: '배치 중',
     creating: '노드 생성',
     connecting: '연결 중',
     waitingApproval: '승인 대기',
@@ -40,10 +42,10 @@ export default function ActivityFeed() {
                                 {def.name}
                             </span>
                             <span className={`text-[9px] px-1.5 py-0.5 rounded ${agent.status === 'thinking' ? 'bg-amber-500/10 text-amber-400 animate-pulse' :
-                                    agent.status === 'creating' || agent.status === 'connecting' ? `text-[${def.color}]` :
-                                        agent.status === 'waitingApproval' ? 'bg-amber-500/10 text-amber-400' :
-                                            agent.status === 'error' ? 'bg-red-500/10 text-red-400' :
-                                                'text-[#444]'
+                                agent.status === 'creating' || agent.status === 'connecting' ? `text-[${def.color}]` :
+                                    agent.status === 'waitingApproval' ? 'bg-amber-500/10 text-amber-400' :
+                                        agent.status === 'error' ? 'bg-red-500/10 text-red-400' :
+                                            'text-[#444]'
                                 }`} style={isActive && agent.status !== 'thinking' && agent.status !== 'waitingApproval' && agent.status !== 'error' ? { color: def.color, backgroundColor: `${def.color}15` } : {}}>
                                 {STATUS_LABELS[agent.status]}
                             </span>

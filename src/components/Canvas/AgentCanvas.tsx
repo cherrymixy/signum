@@ -12,6 +12,7 @@ import 'reactflow/dist/style.css';
 
 import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 import AgentCursorLayer from './AgentCursorLayer';
+import NodeToolbox from './NodeToolbox';
 
 import ImageInputNode from '../Nodes/ImageInputNode';
 import IntentAnalysisNode from '../Nodes/IntentAnalysisNode';
@@ -83,6 +84,7 @@ function AgentCanvasInner() {
                     style={{ background: '#141414', border: '1px solid #2a2a2a' }}
                 />
             </ReactFlow>
+            <NodeToolbox />
             <AgentCursorLayer />
         </div>
     );

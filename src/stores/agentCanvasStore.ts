@@ -288,6 +288,28 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                 });
                 break;
 
+            case 'cursor:grab':
+                updateAgent(event.agentId, {
+                    status: 'grabbing',
+                    carrying: event.nodeType,
+                });
+                addActivity(event.agentId, 'grabbing', `${event.nodeType} 노드를 가져옵니다`);
+                break;
+
+            case 'cursor:drop':
+                updateAgent(event.agentId, {
+                    status: 'creating',
+                    carrying: undefined,
+                });
+                break;
+
+            case 'cursor:connect':
+                updateAgent(event.agentId, {
+                    status: 'connecting',
+                    cursor: { x: event.toX, y: event.toY },
+                });
+                break;
+
             case 'node:create':
                 addNode(event.node);
                 if (event.node.data.agentId) {

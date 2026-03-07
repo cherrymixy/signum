@@ -5,6 +5,8 @@ export type AgentId = 'intent' | 'decoder' | 'gap' | 'revision' | 'executor';
 export type AgentStatus =
     | 'idle'
     | 'thinking'
+    | 'grabbing'
+    | 'carrying'
     | 'creating'
     | 'connecting'
     | 'waitingApproval'
@@ -25,6 +27,7 @@ export interface AgentRuntimeState {
     status: AgentStatus;
     cursor: { x: number; y: number };
     currentMessage?: string;
+    carrying?: CanvasNodeType; // 들고 있는 노드 타입
 }
 
 // === Canvas Node Types ===
@@ -63,6 +66,9 @@ export interface CanvasEdge {
 export type SSEEvent =
     | { type: 'agent:status'; agentId: AgentId; status: AgentStatus; message?: string }
     | { type: 'cursor:move'; agentId: AgentId; x: number; y: number }
+    | { type: 'cursor:grab'; agentId: AgentId; nodeType: CanvasNodeType }
+    | { type: 'cursor:drop'; agentId: AgentId }
+    | { type: 'cursor:connect'; agentId: AgentId; fromX: number; fromY: number; toX: number; toY: number }
     | { type: 'node:create'; node: CanvasNode }
     | { type: 'node:update'; nodeId: string; data: Partial<any> }
     | { type: 'edge:create'; edge: CanvasEdge }
