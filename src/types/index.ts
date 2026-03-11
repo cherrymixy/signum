@@ -1,6 +1,6 @@
 // === Agent System Types ===
 
-export type AgentId = 'intent' | 'decoder' | 'gap' | 'revision' | 'executor';
+export type AgentId = 'intent' | 'decoder' | 'gap' | 'revision' | 'executor' | 'orchestrator';
 
 export type AgentStatus =
     | 'idle'
@@ -39,7 +39,12 @@ export type CanvasNodeType =
     | 'gapAnalysis'
     | 'revisionProposal'
     | 'execution'
-    | 'evaluation';
+    | 'evaluation'
+    | 'insight'
+    | 'question'
+    | 'comparison'
+    | 'annotation'
+    | 'summary';
 
 export interface CanvasNode {
     id: string;
@@ -75,6 +80,7 @@ export type SSEEvent =
     | { type: 'approval:request'; proposalId: string; suggestions: SuggestionItem[] }
     | { type: 'approval:resolved'; proposalId: string; approved: boolean }
     | { type: 'pipeline:done'; summary: string }
+    | { type: 'orchestrator:thinking'; reasoning: string; nextAction: string }
     | { type: 'error'; message: string };
 
 // === Approval Types ===
@@ -97,6 +103,43 @@ export interface ActivityLogEntry {
     action: string;
     timestamp: number;
     detail?: string;
+}
+
+// === Orchestrator Node Data Types ===
+
+export interface InsightData {
+    message: string;
+    category: 'discovery' | 'warning' | 'opportunity' | 'pattern';
+    confidence: number; // 0-100
+    relatedTo?: string; // 관련 노드 ID
+}
+
+export interface QuestionData {
+    question: string;
+    answer?: string;
+    status: 'exploring' | 'answered' | 'deferred';
+}
+
+export interface ComparisonData {
+    leftLabel: string;
+    leftContent: string;
+    rightLabel: string;
+    rightContent: string;
+    verdict: string;
+    winner?: 'left' | 'right' | 'neutral';
+}
+
+export interface AnnotationData {
+    comment: string;
+    targetNodeId: string;
+    annotatorAgent: AgentId;
+}
+
+export interface SummaryData {
+    headline: string;
+    keyPoints: string[];
+    overallScore?: number; // 0-100
+    recommendation: string;
 }
 
 // === Agent Output Types ===

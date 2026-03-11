@@ -130,6 +130,10 @@ body {
   box-shadow: 0 0 16px rgba(244, 114, 182, 0.12);
 }
 
+.agent-node[data-agent="orchestrator"] {
+  box-shadow: 0 0 16px rgba(192, 132, 252, 0.15);
+}
+
 /* ─── Edge Animation ─── */
 
 .react-flow__edge.animated path {

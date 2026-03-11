@@ -21,6 +21,11 @@ import GapAnalysisNode from '../Nodes/GapAnalysisNode';
 import RevisionProposalNode from '../Nodes/RevisionProposalNode';
 import ExecutionNode from '../Nodes/ExecutionNode';
 import EvaluationNode from '../Nodes/EvaluationNode';
+import InsightNode from '../Nodes/InsightNode';
+import QuestionNode from '../Nodes/QuestionNode';
+import ComparisonNode from '../Nodes/ComparisonNode';
+import AnnotationNode from '../Nodes/AnnotationNode';
+import SummaryNode from '../Nodes/SummaryNode';
 
 const nodeTypes = {
     imageInput: ImageInputNode,
@@ -30,6 +35,11 @@ const nodeTypes = {
     revisionProposal: RevisionProposalNode,
     execution: ExecutionNode,
     evaluation: EvaluationNode,
+    insight: InsightNode,
+    question: QuestionNode,
+    comparison: ComparisonNode,
+    annotation: AnnotationNode,
+    summary: SummaryNode,
 };
 
 function AgentCanvasInner() {

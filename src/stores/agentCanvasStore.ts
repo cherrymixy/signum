@@ -53,6 +53,7 @@ interface AgentCanvasState {
 }
 
 const initialAgents: Record<AgentId, AgentRuntimeState> = {
+    orchestrator: { agentId: 'orchestrator', status: 'idle', cursor: { x: 0, y: 0 } },
     intent: { agentId: 'intent', status: 'idle', cursor: { x: 0, y: 0 } },
     decoder: { agentId: 'decoder', status: 'idle', cursor: { x: 0, y: 0 } },
     gap: { agentId: 'gap', status: 'idle', cursor: { x: 0, y: 0 } },
@@ -343,6 +344,10 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
 
             case 'pipeline:done':
                 set({ pipelineStatus: 'done', pipelineSummary: event.summary });
+                break;
+
+            case 'orchestrator:thinking':
+                addActivity('orchestrator', 'thinking', `${event.reasoning} → ${event.nextAction}`);
                 break;
 
             case 'error':

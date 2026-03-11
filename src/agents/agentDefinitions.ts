@@ -2,6 +2,14 @@ import { AgentDefinition } from '@/types';
 
 export const AGENT_DEFINITIONS: AgentDefinition[] = [
     {
+        id: 'orchestrator',
+        name: 'Orchestrator',
+        role: '자율 조율',
+        color: '#c084fc',
+        icon: '🧠',
+        description: '분석 상태를 판단하고 다음 행동을 결정합니다.',
+    },
+    {
         id: 'intent',
         name: 'Intent Agent',
         role: '의도 구조화',
