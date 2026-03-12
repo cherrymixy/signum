@@ -81,60 +81,50 @@ type OrchestratorAction =
     | { action: 'create_summary'; reason: string; headline: string; keyPoints: string[]; overallScore: number; recommendation: string }
     | { action: 'finish'; reason: string; summary: string };
 
-const ORCHESTRATOR_SYSTEM_PROMPT = `당신은 시각 커뮤니케이션 분석 오케스트레이터입니다.
-이미지의 인코딩-디코딩 Gap을 분석하는 멀티 에이전트 시스템을 자율적으로 조율합니다.
+const ENRICHMENT_SYSTEM_PROMPT = `당신은 시각 커뮤니케이션 분석 보조입니다.
+이미지 인코딩-디코딩 분석이 완료된 후, 분석을 풍부하게 만드는 추가 행동을 결정합니다.
 
-사용 가능한 에이전트:
-1. call_intent — 창작자 의도를 구조화 (coreMessage, emotionalTone, callToAction)
-2. call_decoder — 타겟 관점에서 해석 가설 생성 (3~5개 가설, 각각 확률)
-3. call_gap — 의도와 해석의 Gap 분석 (severity, alignmentScore)
-4. call_revision — Gap 기반 수정 제안 생성
+사용 가능한 행동:
+- create_insight — 분석에서 발견한 핵심 인사이트 (category: discovery/warning/opportunity/pattern, confidence: 0-100, message: 한 문장)
+- create_comparison — 의도 vs 해석 등 두 요소 비교 (leftLabel, leftContent, rightLabel, rightContent, verdict, winner: left/right/neutral)
+- create_annotation — 특정 분석에 대한 코멘트 (comment, targetAgent: intent/decoder/gap/revision)
+- finish — 더 이상 추가할 것 없음 (summary: 전체 분석 결론)
 
-사용 가능한 자율 행동:
-- create_insight — 분석 중 발견한 인사이트 (category: discovery/warning/opportunity/pattern, confidence: 0-100)
-- create_question — 더 탐구해야 할 질문
-- create_comparison — 두 요소 비교 분석
-- create_annotation — 특정 분석에 대한 코멘트
-- create_summary — 중간 또는 최종 요약
-- finish — 파이프라인 종료
-
-**필수 규칙 (반드시 준수):**
-1. **핵심 에이전트를 먼저 호출하세요.** 순서: call_intent → call_decoder → call_gap → call_revision. 이 4개를 모두 호출할 때까지 자율 행동(create_*)은 사용하지 마세요.
-2. 핵심 에이전트 4개를 모두 완료한 후에만 자율 행동(create_insight, create_question, create_comparison 등)을 사용할 수 있습니다.
-3. 자율 행동은 분석을 풍부하게 만드는 데 사용하되, 최소 1개 이상 사용하세요.
-4. 같은 에이전트를 다시 호출할 수도 있습니다 (예: gap 분석 후 의도를 재분석).
-5. 모든 분석이 충분하면 create_summary로 최종 요약을 만든 후 finish를 호출하세요.
-6. 매 턴 정확히 하나의 action을 JSON으로 반환하세요.
+규칙:
+1. 반드시 1~3개의 자율 행동 후 finish를 호출하세요.
+2. create_insight 또는 create_comparison을 우선 사용하세요.
+3. create_question이나 create_summary는 사용하지 마세요.
+4. 매 턴 정확히 하나의 action을 JSON으로 반환하세요.
 
 JSON 형식으로만 응답하세요.`;
 
-async function askOrchestrator(
+async function askEnrichment(
     openai: OpenAI,
     state: PipelineState,
     input: PipelineInput,
-    step: number,
+    enrichmentStep: number,
 ): Promise<OrchestratorAction> {
     const stateDescription = buildStateDescription(state, input);
 
     const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-            { role: 'system', content: ORCHESTRATOR_SYSTEM_PROMPT },
+            { role: 'system', content: ENRICHMENT_SYSTEM_PROMPT },
             {
                 role: 'user',
-                content: `[현재 상태 — Step ${step}]
+                content: `[분석 완료 — 추가 행동 ${enrichmentStep}/3]
 ${stateDescription}
 
-다음에 어떤 행동을 해야 할지 JSON으로 결정하세요.
+분석을 더 풍부하게 할 추가 행동을 JSON으로 결정하세요.
 action 필드와 reason 필드는 필수입니다.`,
             },
         ],
-        max_tokens: 1500,
+        max_tokens: 800,
         response_format: { type: 'json_object' },
     });
 
     const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('Orchestrator: 빈 응답');
+    if (!content) throw new Error('Enrichment: 빈 응답');
 
     return JSON.parse(content) as OrchestratorAction;
 }
@@ -216,13 +206,38 @@ export async function runStreamingPipeline(
     let cursor = { x: imagePos.x + 120, y: imagePos.y + 50 };
 
     try {
-        let step = 0;
-        while (true) {
-            step++;
-            // ─── 오케스트레이터 판단 ───
-            emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: `Step ${step}: 다음 행동을 결정합니다...` });
+        // ═══════════════════════════════════════
+        // Phase 1: 핵심 에이전트 (하드코딩 순서)
+        // ═══════════════════════════════════════
+        emitter.emit({ type: 'orchestrator:thinking', reasoning: '핵심 분석 에이전트를 순서대로 호출합니다', nextAction: 'call_intent' });
 
-            const decision = await askOrchestrator(openai, state, input, step);
+        // 1. Intent Agent
+        emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: 'Phase 1: 의도 분석을 시작합니다...' });
+        cursor = await executeIntentAgent(emitter, openai, input, state, cursor);
+
+        // 2. Decoder Agent
+        emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: 'Phase 1: 해석 가설을 생성합니다...' });
+        emitter.emit({ type: 'orchestrator:thinking', reasoning: '의도 분석 완료, 타겟 관점 해석 시작', nextAction: 'call_decoder' });
+        cursor = await executeDecoderAgent(emitter, openai, input, state, cursor);
+
+        // 3. Gap Agent
+        emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: 'Phase 1: Gap 분석을 시작합니다...' });
+        emitter.emit({ type: 'orchestrator:thinking', reasoning: '해석 가설 생성 완료, 의도-해석 Gap 분석 시작', nextAction: 'call_gap' });
+        cursor = await executeGapAgent(emitter, openai, state, cursor);
+
+        // 4. Revision Agent
+        emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: 'Phase 1: 수정 제안을 생성합니다...' });
+        emitter.emit({ type: 'orchestrator:thinking', reasoning: 'Gap 분석 완료, 수정 방향 제안 시작', nextAction: 'call_revision' });
+        cursor = await executeRevisionAgent(emitter, openai, input, state, cursor);
+
+        // ═══════════════════════════════════════
+        // Phase 2: 자율 보강 (LLM 결정, 최대 4회)
+        // ═══════════════════════════════════════
+        emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: 'Phase 2: 분석 보강 행동을 결정합니다...' });
+
+        const MAX_ENRICHMENT = 4;
+        for (let enrichStep = 1; enrichStep <= MAX_ENRICHMENT; enrichStep++) {
+            const decision = await askEnrichment(openai, state, input, enrichStep);
 
             emitter.emit({
                 type: 'orchestrator:thinking',
@@ -230,64 +245,54 @@ export async function runStreamingPipeline(
                 nextAction: decision.action,
             });
 
-            emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'idle' });
+            if (decision.action === 'finish') break;
 
-            // ─── 행동 실행 ───
             switch (decision.action) {
-                case 'call_intent':
-                    cursor = await executeIntentAgent(emitter, openai, input, state, cursor);
-                    break;
-
-                case 'call_decoder':
-                    cursor = await executeDecoderAgent(emitter, openai, input, state, cursor);
-                    break;
-
-                case 'call_gap':
-                    cursor = await executeGapAgent(emitter, openai, state, cursor);
-                    break;
-
-                case 'call_revision':
-                    cursor = await executeRevisionAgent(emitter, openai, input, state, cursor);
-                    break;
-
                 case 'create_insight':
                     cursor = await createInsightNode(emitter, state, cursor, decision);
                     break;
-
-                case 'create_question':
-                    cursor = await createQuestionNode(emitter, state, cursor, decision);
-                    break;
-
                 case 'create_comparison':
                     cursor = await createComparisonNode(emitter, state, cursor, decision);
                     break;
-
                 case 'create_annotation':
                     cursor = await createAnnotationNode(emitter, state, cursor, decision);
                     break;
-
                 case 'create_summary':
                     cursor = await createSummaryNode(emitter, state, cursor, decision);
                     break;
-
-                case 'finish': {
-                    // revision 결과가 있으면 승인 요청
-                    if (state.suggestionResult) {
-                        const proposalId = uuidv4();
-                        emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'waitingApproval', message: '사용자 승인을 기다립니다...' });
-                        emitter.emit({ type: 'approval:request', proposalId, suggestions: state.suggestionResult.suggestions });
-                    }
-
-                    emitter.emit({
-                        type: 'pipeline:done',
-                        summary: decision.summary || `${state.nodes.length}개 노드 생성 | ${state.completedSteps.length}단계 완료`,
-                    });
-
-                    emitter.close();
-                    return;
-                }
+                default:
+                    // 알 수 없는 action은 무시
+                    break;
             }
         }
+
+        // ═══════════════════════════════════════
+        // Phase 3: 최종 요약 + 승인 요청
+        // ═══════════════════════════════════════
+
+        // 최종 요약 노드 생성
+        cursor = await createSummaryNode(emitter, state, cursor, {
+            headline: `인코딩-디코딩 분석 완료`,
+            keyPoints: [
+                state.intentResult ? `의도: ${state.intentResult.coreMessage}` : '',
+                state.gapResult ? `일치도: ${state.gapResult.overallAlignmentScore}%` : '',
+                state.suggestionResult ? `${state.suggestionResult.suggestions.length}개 수정 제안` : '',
+            ].filter(Boolean),
+            overallScore: state.gapResult?.overallAlignmentScore,
+            recommendation: state.suggestionResult?.summary || '분석 결과를 검토하세요.',
+        });
+
+        // 수정 제안 승인 요청
+        if (state.suggestionResult) {
+            const proposalId = uuidv4();
+            emitter.emit({ type: 'agent:status', agentId: 'revision', status: 'waitingApproval', message: '사용자 승인을 기다립니다...' });
+            emitter.emit({ type: 'approval:request', proposalId, suggestions: state.suggestionResult.suggestions });
+        }
+
+        emitter.emit({
+            type: 'pipeline:done',
+            summary: `${state.nodes.length}개 노드 | ${state.completedSteps.join(' → ')}`,
+        });
 
     } catch (error: any) {
         emitter.emit({ type: 'error', message: error.message || '파이프라인 실행 중 오류' });
