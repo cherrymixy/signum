@@ -85,10 +85,10 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `당신은 시각 커뮤니케이션 분석 �
 이미지의 인코딩-디코딩 Gap을 분석하는 멀티 에이전트 시스템을 자율적으로 조율합니다.
 
 사용 가능한 에이전트:
-1. intent — 창작자 의도를 구조화 (coreMessage, emotionalTone, callToAction)
-2. decoder — 타겟 관점에서 해석 가설 생성 (3~5개 가설, 각각 확률)
-3. gap — 의도와 해석의 Gap 분석 (severity, alignmentScore)
-4. revision — Gap 기반 수정 제안 생성
+1. call_intent — 창작자 의도를 구조화 (coreMessage, emotionalTone, callToAction)
+2. call_decoder — 타겟 관점에서 해석 가설 생성 (3~5개 가설, 각각 확률)
+3. call_gap — 의도와 해석의 Gap 분석 (severity, alignmentScore)
+4. call_revision — Gap 기반 수정 제안 생성
 
 사용 가능한 자율 행동:
 - create_insight — 분석 중 발견한 인사이트 (category: discovery/warning/opportunity/pattern, confidence: 0-100)
@@ -96,13 +96,15 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `당신은 시각 커뮤니케이션 분석 �
 - create_comparison — 두 요소 비교 분석
 - create_annotation — 특정 분석에 대한 코멘트
 - create_summary — 중간 또는 최종 요약
+- finish — 파이프라인 종료
 
-규칙:
-1. 기본 흐름(intent → decoder → gap → revision)을 따르되, 중간에 자율적으로 insight/question/comparison 등을 삽입할 수 있습니다.
-2. 같은 에이전트를 다시 호출할 수도 있습니다 (예: gap 분석 후 의도를 재분석).
-3. 반드시 최소 intent, decoder, gap은 한 번씩 호출하세요.
-4. 분석이 충분하다고 판단되면 create_summary 후 finish를 호출하세요.
-5. 매 턴 정확히 하나의 action을 JSON으로 반환하세요.
+**필수 규칙 (반드시 준수):**
+1. **핵심 에이전트를 먼저 호출하세요.** 순서: call_intent → call_decoder → call_gap → call_revision. 이 4개를 모두 호출할 때까지 자율 행동(create_*)은 사용하지 마세요.
+2. 핵심 에이전트 4개를 모두 완료한 후에만 자율 행동(create_insight, create_question, create_comparison 등)을 사용할 수 있습니다.
+3. 자율 행동은 분석을 풍부하게 만드는 데 사용하되, 최소 1개 이상 사용하세요.
+4. 같은 에이전트를 다시 호출할 수도 있습니다 (예: gap 분석 후 의도를 재분석).
+5. 모든 분석이 충분하면 create_summary로 최종 요약을 만든 후 finish를 호출하세요.
+6. 매 턴 정확히 하나의 action을 JSON으로 반환하세요.
 
 JSON 형식으로만 응답하세요.`;
 
@@ -212,10 +214,11 @@ export async function runStreamingPipeline(
     };
 
     let cursor = { x: imagePos.x + 120, y: imagePos.y + 50 };
-    const MAX_STEPS = 12;
 
     try {
-        for (let step = 1; step <= MAX_STEPS; step++) {
+        let step = 0;
+        while (true) {
+            step++;
             // ─── 오케스트레이터 판단 ───
             emitter.emit({ type: 'agent:status', agentId: 'orchestrator', status: 'thinking', message: `Step ${step}: 다음 행동을 결정합니다...` });
 
@@ -285,12 +288,6 @@ export async function runStreamingPipeline(
                 }
             }
         }
-
-        // MAX_STEPS 도달 — 자동 종료
-        emitter.emit({
-            type: 'pipeline:done',
-            summary: `최대 단계(${MAX_STEPS}) 도달 | ${state.nodes.length}개 노드 | ${state.completedSteps.join(', ')}`,
-        });
 
     } catch (error: any) {
         emitter.emit({ type: 'error', message: error.message || '파이프라인 실행 중 오류' });
