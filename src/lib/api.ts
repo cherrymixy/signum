@@ -14,19 +14,41 @@ export interface AnalysisResponse {
 }
 
 /**
- * 이미지 파일을 base64로 변환
+ * 이미지를 Canvas를 통해 리사이즈 + 압축하여 base64로 변환
+ * Vercel의 4.5MB body limit을 초과하지 않도록 최대 1600px, JPEG 품질 0.8로 압축
  */
 export async function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      // "data:image/png;base64,..." 에서 base64 부분만 추출
+    const img = new Image();
+    img.onload = () => {
+      const MAX_DIM = 1600;
+      let { width, height } = img;
+
+      // 큰 이미지는 리사이즈
+      if (width > MAX_DIM || height > MAX_DIM) {
+        const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context 생성 실패'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // JPEG로 압축 (품질 0.8)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       const base64 = dataUrl.split(',')[1];
-      resolve({ base64, mimeType: file.type });
+      resolve({ base64, mimeType: 'image/jpeg' });
     };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
   });
 }
 
