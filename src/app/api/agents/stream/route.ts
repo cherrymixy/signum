@@ -4,6 +4,7 @@ import { SSEEmitter } from '@/lib/sseHelpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5분 — 자율 오케스트레이터는 긴 실행 가능
 
 export async function POST(request: NextRequest) {
     const body = await request.json();

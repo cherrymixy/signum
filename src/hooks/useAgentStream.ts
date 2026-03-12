@@ -42,8 +42,15 @@ export function useAgentStream() {
             });
 
             if (!response.ok) {
-                const error = await response.json();
-                handleSSEEvent({ type: 'error', message: error.error || '스트림 연결 실패' });
+                let errorMsg = '스트림 연결 실패';
+                try {
+                    const error = await response.json();
+                    errorMsg = error.error || errorMsg;
+                } catch {
+                    const text = await response.text().catch(() => '');
+                    errorMsg = text || `HTTP ${response.status}`;
+                }
+                handleSSEEvent({ type: 'error', message: errorMsg });
                 return;
             }
 
