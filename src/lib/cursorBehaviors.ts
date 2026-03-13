@@ -171,18 +171,11 @@ export async function revisit(
 }
 
 /**
- * grabFromToolbox — 도구상자에서 노드를 가져오는 전체 시퀀스
+ * grabFromToolbox — 노드를 가져와 목표 위치에 배치하는 시퀀스
+ *
+ * 실제 toolbox DOM 좌표를 방문하는 대신, 현재 위치에서 잠깐 준비 동작 후
+ * 목표 위치로 이동한다. (toolbox는 DOM 고정 위치라 flow 좌표계와 맞지 않음)
  */
-const TOOLBOX_X = 45;
-const TOOLBOX_SLOT_Y: Record<string, number> = {
-    intentAnalysis: 62,
-    decodingHypothesis: 86,
-    gapAnalysis: 110,
-    revisionProposal: 134,
-    execution: 158,
-    evaluation: 182,
-};
-
 export async function grabFromToolbox(
     emitter: SSEEmitter,
     agentId: AgentId,
@@ -190,28 +183,27 @@ export async function grabFromToolbox(
     currentPos: { x: number; y: number },
     dropTarget: { x: number; y: number },
 ): Promise<{ x: number; y: number }> {
-    const slotY = TOOLBOX_SLOT_Y[nodeType] || 100;
-    const toolboxTarget = { x: TOOLBOX_X, y: slotY };
+    let pos = { ...currentPos };
 
-    // 1. 도구상자까지 이동 (약간 멈칫하며)
-    let pos = await moveTo(emitter, agentId, currentPos, toolboxTarget, 350);
-    await delay(Math.round(rand(120, 220)));
+    // 1. 잠깐 멈추며 준비
+    pos = await fidget(emitter, agentId, pos, 2, 8);
+    await delay(Math.round(rand(100, 180)));
 
     // 2. Grab
     emitter.emit({ type: 'cursor:grab', agentId, nodeType: nodeType as any });
-    await delay(Math.round(rand(180, 280)));
+    await delay(Math.round(rand(150, 250)));
 
-    // 3. carry + 이동
+    // 3. 목표 위치로 이동 (노드를 들고)
     emitter.emit({ type: 'agent:status', agentId, status: 'carrying', message: '노드를 배치합니다' });
     pos = await moveTo(emitter, agentId, pos, dropTarget, 500);
 
     // 4. drop 전 미세 조정 — 사람처럼 정확한 위치 찾기
-    pos = await fidget(emitter, agentId, pos, 2, 6);
-    await delay(Math.round(rand(80, 160)));
+    pos = await fidget(emitter, agentId, pos, 2, 4);
+    await delay(Math.round(rand(60, 120)));
 
     // 5. Drop
     emitter.emit({ type: 'cursor:drop', agentId });
-    await delay(100);
+    await delay(80);
 
     return pos;
 }

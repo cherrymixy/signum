@@ -7,6 +7,7 @@ import {
     CanvasNode,
     CanvasEdge,
     ApprovalItem,
+    CheckpointItem,
     ActivityLogEntry,
     SSEEvent,
     PipelineInput,
@@ -23,6 +24,8 @@ interface AgentCanvasState {
 
     // === UI 상태 ===
     approvals: ApprovalItem[];
+    checkpoints: CheckpointItem[];
+    pendingCheckpoint: CheckpointItem | null;
     activityLog: ActivityLogEntry[];
     pipelineStatus: 'idle' | 'running' | 'done' | 'error';
     pipelineSummary?: string;
@@ -47,6 +50,7 @@ interface AgentCanvasState {
     addApproval: (item: ApprovalItem) => void;
     resolveApproval: (proposalId: string, approved: boolean) => void;
     executeApproval: (proposalId: string) => void;
+    respondToCheckpoint: (checkpointId: string, response: string) => Promise<void>;
     handleSSEEvent: (event: SSEEvent) => void;
     startPipeline: () => void;
     resetCanvas: () => void;
@@ -67,6 +71,8 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
     edges: [],
     agents: { ...initialAgents },
     approvals: [],
+    checkpoints: [],
+    pendingCheckpoint: null,
     activityLog: [],
     pipelineStatus: 'idle',
     pipelineSummary: undefined,
@@ -271,6 +277,24 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         addActivity('executor', 'idle', '이미지 생성 완료');
     },
 
+    respondToCheckpoint: async (checkpointId, response) => {
+        // 낙관적 업데이트: 패널 즉시 닫기
+        set((state) => ({
+            pendingCheckpoint: null,
+            checkpoints: state.checkpoints.map((c) =>
+                c.checkpointId === checkpointId
+                    ? { ...c, status: 'resolved', response }
+                    : c
+            ),
+        }));
+        // 서버에 응답 전송 → 파이프라인 재개
+        await fetch('/api/agents/checkpoint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checkpointId, response }),
+        });
+    },
+
     handleSSEEvent: (event) => {
         const { addNode, updateNodeData, addEdge, updateAgent, addActivity, addApproval, resolveApproval } = get();
 
@@ -342,6 +366,36 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                 resolveApproval(event.proposalId, event.approved);
                 break;
 
+            case 'checkpoint:request': {
+                const newCheckpoint: CheckpointItem = {
+                    checkpointId: event.checkpointId,
+                    question: event.question,
+                    options: event.options,
+                    context: event.context,
+                    status: 'pending',
+                };
+                set((state) => ({
+                    checkpoints: [...state.checkpoints, newCheckpoint],
+                    pendingCheckpoint: newCheckpoint,
+                }));
+                addActivity('orchestrator', 'checkpoint', event.question);
+                break;
+            }
+
+            case 'checkpoint:resolved':
+                set((state) => ({
+                    checkpoints: state.checkpoints.map((c) =>
+                        c.checkpointId === event.checkpointId
+                            ? { ...c, status: 'resolved', response: event.response }
+                            : c
+                    ),
+                    pendingCheckpoint:
+                        state.pendingCheckpoint?.checkpointId === event.checkpointId
+                            ? null
+                            : state.pendingCheckpoint,
+                }));
+                break;
+
             case 'pipeline:done':
                 set({ pipelineStatus: 'done', pipelineSummary: event.summary });
                 break;
@@ -363,6 +417,8 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             nodes: [],
             edges: [],
             approvals: [],
+            checkpoints: [],
+            pendingCheckpoint: null,
             activityLog: [],
             agents: { ...initialAgents },
             pipelineSummary: undefined,
@@ -373,6 +429,8 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             nodes: [],
             edges: [],
             approvals: [],
+            checkpoints: [],
+            pendingCheckpoint: null,
             activityLog: [],
             agents: { ...initialAgents },
             pipelineStatus: 'idle',

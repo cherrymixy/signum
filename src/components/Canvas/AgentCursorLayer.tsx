@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useStore } from 'reactflow';
 import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 import { AGENT_DEFINITIONS } from '@/agents/agentDefinitions';
 import { AgentStatus, CanvasNodeType } from '@/types';
@@ -35,9 +36,18 @@ interface CursorTrail {
 
 export default function AgentCursorLayer() {
     const agents = useAgentCanvasStore((s) => s.agents);
+    // ReactFlow viewport transform: [translateX, translateY, zoom]
+    // 서버에서 오는 커서 좌표는 flow 좌표계 → screen 좌표로 변환 필요
+    const transform = useStore((s) => s.transform);
     const [trails, setTrails] = useState<Record<string, CursorTrail[]>>({});
     const trailCounter = useRef(0);
     const prevPositions = useRef<Record<string, { x: number; y: number }>>({});
+
+    // flow 좌표 → screen 픽셀 좌표 변환
+    const toScreen = (flowX: number, flowY: number) => ({
+        x: flowX * transform[2] + transform[0],
+        y: flowY * transform[2] + transform[1],
+    });
 
     // Trail 효과 — 커서 이동 시 잔상 생성
     useEffect(() => {
@@ -77,30 +87,35 @@ export default function AgentCursorLayer() {
                 const isThinking = agent.status === 'thinking';
                 const agentTrails = trails[def.id] || [];
 
+                const screenPos = toScreen(agent.cursor.x, agent.cursor.y);
+
                 return (
                     <React.Fragment key={def.id}>
                         {/* Trail 잔상 */}
-                        {agentTrails.map((trail, idx) => (
-                            <div
-                                key={trail.id}
-                                className="absolute transition-opacity duration-500"
-                                style={{
-                                    transform: `translate(${trail.x}px, ${trail.y}px)`,
-                                    opacity: 0.15 + idx * 0.05,
-                                }}
-                            >
+                        {agentTrails.map((trail, idx) => {
+                            const trailScreen = toScreen(trail.x, trail.y);
+                            return (
                                 <div
-                                    className="w-3 h-3 rounded-full"
-                                    style={{ backgroundColor: def.color }}
-                                />
-                            </div>
-                        ))}
+                                    key={trail.id}
+                                    className="absolute transition-opacity duration-500"
+                                    style={{
+                                        transform: `translate(${trailScreen.x}px, ${trailScreen.y}px)`,
+                                        opacity: 0.15 + idx * 0.05,
+                                    }}
+                                >
+                                    <div
+                                        className="w-3 h-3 rounded-full"
+                                        style={{ backgroundColor: def.color }}
+                                    />
+                                </div>
+                            );
+                        })}
 
                         {/* 메인 커서 */}
                         <div
                             className="absolute"
                             style={{
-                                transform: `translate(${agent.cursor.x}px, ${agent.cursor.y}px)`,
+                                transform: `translate(${screenPos.x}px, ${screenPos.y}px)`,
                                 transition: 'transform 0.12s linear',
                             }}
                         >

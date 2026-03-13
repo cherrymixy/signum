@@ -54,8 +54,9 @@ export interface CanvasNode {
         agentId?: AgentId;
         title: string;
         content: any;
+        streamingText?: string; // 스트리밍 중 누적 텍스트
         createdAt: number;
-        status: 'creating' | 'active' | 'approved' | 'rejected';
+        status: 'creating' | 'streaming' | 'active' | 'approved' | 'rejected';
     };
 }
 
@@ -79,9 +80,22 @@ export type SSEEvent =
     | { type: 'edge:create'; edge: CanvasEdge }
     | { type: 'approval:request'; proposalId: string; suggestions: SuggestionItem[] }
     | { type: 'approval:resolved'; proposalId: string; approved: boolean }
+    | { type: 'checkpoint:request'; checkpointId: string; question: string; options: string[]; context?: string }
+    | { type: 'checkpoint:resolved'; checkpointId: string; response: string }
     | { type: 'pipeline:done'; summary: string }
     | { type: 'orchestrator:thinking'; reasoning: string; nextAction: string }
     | { type: 'error'; message: string };
+
+// === Checkpoint Types ===
+
+export interface CheckpointItem {
+    checkpointId: string;
+    question: string;
+    options: string[];
+    context?: string;
+    status: 'pending' | 'resolved';
+    response?: string;
+}
 
 // === Approval Types ===
 

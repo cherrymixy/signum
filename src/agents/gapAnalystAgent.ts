@@ -31,13 +31,15 @@ const SYSTEM_PROMPT = `당신은 커뮤니케이션 Gap 분석 전문가입니�
 export interface GapAnalystInput {
     intentAnalysis: IntentAnalysis;
     decodingResult: DecodingHypothesisSet;
+    userContext?: string; // 체크포인트에서 수집한 사용자 지시
 }
 
 export async function runGapAnalystAgent(
     openai: OpenAI,
-    input: GapAnalystInput
+    input: GapAnalystInput,
+    onToken?: (accumulated: string) => void,
 ): Promise<GapAnalysis> {
-    const response = await openai.chat.completions.create({
+    const stream = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -55,17 +57,25 @@ export async function runGapAnalystAgent(
 우세 해석: ${input.decodingResult.dominantInterpretation}
 ${input.decodingResult.hypotheses.map((h, i) => `가설 ${i + 1} (${(h.probability * 100).toFixed(0)}%): ${h.interpretation} — 감정 반응: ${h.emotionalResponse}`).join('\n')}
 
-위 의도와 해석을 비교하여 Gap을 분석하세요.`,
+위 의도와 해석을 비교하여 Gap을 분석하세요.${input.userContext ? `\n\n[사용자 지시 — 이 방향으로 분석해주세요]\n${input.userContext}` : ''}`,
             },
         ],
         max_tokens: 2000,
         response_format: { type: 'json_object' },
+        stream: true,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('Gap Analyst Agent: 빈 응답');
+    let accumulated = '';
+    for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+            accumulated += delta;
+            onToken?.(accumulated);
+        }
+    }
 
-    const result = JSON.parse(content) as GapAnalysis;
+    if (!accumulated) throw new Error('Gap Analyst Agent: 빈 응답');
+    const result = JSON.parse(accumulated) as GapAnalysis;
 
     return {
         gaps: Array.isArray(result.gaps) ? result.gaps : [],

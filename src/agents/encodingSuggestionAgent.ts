@@ -32,18 +32,20 @@ export interface EncodingSuggestionInput {
     imageMimeType: string;
     intentAnalysis: IntentAnalysis;
     gapAnalysis: GapAnalysis;
+    userContext?: string; // 체크포인트에서 수집한 사용자 우선순위 지시
 }
 
 export async function runEncodingSuggestionAgent(
     openai: OpenAI,
-    input: EncodingSuggestionInput
+    input: EncodingSuggestionInput,
+    onToken?: (accumulated: string) => void,
 ): Promise<EncodingSuggestions> {
     const gapDescriptions = input.gapAnalysis.gaps
         .map((g, i) => `Gap ${i + 1} [${g.severity}]: ${g.dimension} — 의도: "${g.intended}" vs 해석: "${g.decoded}" (원인: ${g.cause})`)
         .join('\n');
 
-    const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+    const stream = await openai.chat.completions.create({
+        model: 'gpt-4o',
         messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             {
@@ -61,7 +63,7 @@ export async function runEncodingSuggestionAgent(
 
 ${gapDescriptions}
 
-위 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.`,
+위 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.${input.userContext ? `\n\n[사용자 우선순위 지시 — 이 방향으로 제안을 구성해주세요]\n${input.userContext}` : ''}`,
                     },
                     {
                         type: 'image_url',
@@ -72,12 +74,20 @@ ${gapDescriptions}
         ],
         max_tokens: 3000,
         response_format: { type: 'json_object' },
+        stream: true,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('Encoding Suggestion Agent: 빈 응답');
+    let accumulated = '';
+    for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+            accumulated += delta;
+            onToken?.(accumulated);
+        }
+    }
 
-    const result = JSON.parse(content) as EncodingSuggestions;
+    if (!accumulated) throw new Error('Encoding Suggestion Agent: 빈 응답');
+    const result = JSON.parse(accumulated) as EncodingSuggestions;
 
     return {
         suggestions: Array.isArray(result.suggestions) ? result.suggestions : [],

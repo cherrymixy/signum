@@ -33,10 +33,11 @@ export interface DecodingAgentInput {
 
 export async function runDecodingAgent(
     openai: OpenAI,
-    input: DecodingAgentInput
+    input: DecodingAgentInput,
+    onToken?: (accumulated: string) => void,
 ): Promise<DecodingHypothesisSet> {
-    const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+    const stream = await openai.chat.completions.create({
+        model: 'gpt-4o',
         messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             {
@@ -65,12 +66,20 @@ export async function runDecodingAgent(
         ],
         max_tokens: 3000,
         response_format: { type: 'json_object' },
+        stream: true,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('Decoding Agent: 빈 응답');
+    let accumulated = '';
+    for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+            accumulated += delta;
+            onToken?.(accumulated);
+        }
+    }
 
-    const result = JSON.parse(content) as DecodingHypothesisSet;
+    if (!accumulated) throw new Error('Decoding Agent: 빈 응답');
+    const result = JSON.parse(accumulated) as DecodingHypothesisSet;
 
     return {
         targetPersona: result.targetPersona || '',

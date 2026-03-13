@@ -5,7 +5,7 @@ import { Handle, Position } from 'reactflow';
 import { GapAnalysis } from '@/types';
 
 interface Props {
-    data: { agentId: string; title: string; content: GapAnalysis; status: string };
+    data: { agentId: string; title: string; content: GapAnalysis; streamingText?: string; status: string };
     selected?: boolean;
 }
 
@@ -59,7 +59,7 @@ function CircularGauge({ score }: { score: number }) {
 }
 
 export default function GapAnalysisNode({ data, selected }: Props) {
-    const g = data.content;
+    const isStreaming = data.status === 'streaming' || !data.content;
 
     return (
         <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[280px] max-w-[340px] ${selected ? 'border-orange-500/50' : 'border-[#2a2a2a]'
@@ -70,9 +70,32 @@ export default function GapAnalysisNode({ data, selected }: Props) {
             <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center gap-2">
                 <span className="text-xs">⚡</span>
                 <span className="text-xs font-medium text-[#e5e5e5] flex-1">{data.title}</span>
+                {isStreaming && (
+                    <span className="text-[9px] text-orange-400 animate-pulse">분석 중</span>
+                )}
             </div>
 
-            <div className="p-3 space-y-3">
+            {isStreaming ? (
+                <div className="p-3 space-y-3">
+                    <div className="flex gap-3 items-start">
+                        <div className="w-[72px] h-[72px] rounded-full bg-[#1a1a1a] border-4 border-[#222] animate-pulse" />
+                        <div className="flex-1 space-y-2 pt-1">
+                            <div className="h-2 w-12 bg-[#1e1e1e] rounded animate-pulse" />
+                            <div className="h-3 bg-[#1e1e1e] rounded animate-pulse" style={{ width: '85%' }} />
+                            <div className="h-3 bg-[#1e1e1e] rounded animate-pulse" style={{ width: '70%' }} />
+                        </div>
+                    </div>
+                    <div className="h-16 bg-[#0a0a0a] rounded-md animate-pulse" />
+                    <div className="h-16 bg-[#0a0a0a] rounded-md animate-pulse" />
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-ping" />
+                        <span className="text-[9px] text-[#555]">
+                            Gap 탐지 중{data.streamingText ? ` · ${data.streamingText.length}자` : ''}
+                        </span>
+                    </div>
+                </div>
+            ) : (
+            <div className="p-3 space-y-3">{(() => { const g = data.content; return (<>
                 {/* 원형 게이지 + 핵심 발견 */}
                 <div className="flex gap-3 items-start">
                     <CircularGauge score={g.overallAlignmentScore} />
@@ -119,7 +142,9 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                         </div>
                     );
                 })}
+                </>); })()}
             </div>
+            )}
 
             <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-orange-400 !border-orange-600" />
         </div>

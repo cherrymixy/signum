@@ -23,10 +23,11 @@ export interface IntentAgentInput {
 
 export async function runIntentAgent(
     openai: OpenAI,
-    input: IntentAgentInput
+    input: IntentAgentInput,
+    onToken?: (accumulated: string) => void,
 ): Promise<IntentAnalysis> {
-    const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+    const stream = await openai.chat.completions.create({
+        model: 'gpt-4o',
         messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             {
@@ -45,12 +46,20 @@ export async function runIntentAgent(
         ],
         max_tokens: 2000,
         response_format: { type: 'json_object' },
+        stream: true,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error('Intent Agent: 빈 응답');
+    let accumulated = '';
+    for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+            accumulated += delta;
+            onToken?.(accumulated);
+        }
+    }
 
-    const result = JSON.parse(content) as IntentAnalysis;
+    if (!accumulated) throw new Error('Intent Agent: 빈 응답');
+    const result = JSON.parse(accumulated) as IntentAnalysis;
 
     return {
         coreMessage: result.coreMessage || '',

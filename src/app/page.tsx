@@ -5,6 +5,7 @@ import AgentCanvas from '@/components/Canvas/AgentCanvas';
 import InputPanel from '@/components/Panels/InputPanel';
 import ActivityFeed from '@/components/Panels/ActivityFeed';
 import ApprovalDock from '@/components/Panels/ApprovalDock';
+import CheckpointPanel from '@/components/Panels/CheckpointPanel';
 
 export default function Home() {
   return (
@@ -16,6 +17,7 @@ export default function Home() {
       <div className="flex-1 relative">
         <AgentCanvas />
         <ApprovalDock />
+        <CheckpointPanel />
       </div>
 
       {/* 오른쪽: 활동 피드 */}

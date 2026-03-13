@@ -5,7 +5,7 @@ import { Handle, Position } from 'reactflow';
 import { IntentAnalysis } from '@/types';
 
 interface Props {
-    data: { agentId: string; title: string; content: IntentAnalysis; status: string };
+    data: { agentId: string; title: string; content: IntentAnalysis; streamingText?: string; status: string };
     selected?: boolean;
 }
 
@@ -30,8 +30,9 @@ function getToneStyle(tone: string) {
 }
 
 export default function IntentAnalysisNode({ data, selected }: Props) {
-    const c = data.content;
-    const toneStyle = getToneStyle(c.emotionalTone);
+    const isStreaming = data.status === 'streaming' || !data.content;
+    const c = data.content as IntentAnalysis;
+    const toneStyle = c ? getToneStyle(c.emotionalTone) : { color: '#a78bfa', bg: 'rgba(167,139,250,0.12)', icon: '🎨' };
 
     return (
         <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[280px] max-w-[320px] ${selected ? 'border-violet-500/50' : 'border-[#2a2a2a]'
@@ -42,8 +43,29 @@ export default function IntentAnalysisNode({ data, selected }: Props) {
             <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center gap-2">
                 <span className="text-xs">💡</span>
                 <span className="text-xs font-medium text-[#e5e5e5]">{data.title}</span>
+                {isStreaming && (
+                    <span className="ml-auto text-[9px] text-violet-400 animate-pulse">분석 중</span>
+                )}
             </div>
 
+            {isStreaming ? (
+                <div className="p-3 space-y-2.5">
+                    <div className="h-3 bg-[#1e1e1e] rounded animate-pulse" style={{ width: '88%' }} />
+                    <div className="h-3 bg-[#1e1e1e] rounded animate-pulse" style={{ width: '72%' }} />
+                    <div className="h-8 bg-[#1a1a1a] border border-violet-500/10 rounded-md animate-pulse" />
+                    <div className="flex flex-wrap gap-1">
+                        <div className="h-4 w-16 bg-[#1e1e1e] rounded-full animate-pulse" />
+                        <div className="h-4 w-20 bg-[#1e1e1e] rounded-full animate-pulse" />
+                        <div className="h-4 w-14 bg-[#1e1e1e] rounded-full animate-pulse" />
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-ping" />
+                        <span className="text-[9px] text-[#555]">
+                            의도 구조화 중{data.streamingText ? ` · ${data.streamingText.length}자` : ''}
+                        </span>
+                    </div>
+                </div>
+            ) : (
             <div className="p-3 space-y-2.5">
                 {/* 핵심 메시지 — 인용 블록 스타일 */}
                 <div className="flex gap-2">
@@ -88,6 +110,7 @@ export default function IntentAnalysisNode({ data, selected }: Props) {
                     </div>
                 )}
             </div>
+            )}
 
             <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-violet-400 !border-violet-600" />
         </div>

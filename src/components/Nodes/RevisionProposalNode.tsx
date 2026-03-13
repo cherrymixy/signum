@@ -5,7 +5,7 @@ import { Handle, Position } from 'reactflow';
 import { EncodingSuggestions } from '@/types';
 
 interface Props {
-    data: { agentId: string; title: string; content: EncodingSuggestions & { proposalId: string }; status: string };
+    data: { agentId: string; title: string; content: EncodingSuggestions & { proposalId: string }; streamingText?: string; status: string };
     selected?: boolean;
 }
 
@@ -26,7 +26,7 @@ function estimateImpact(text: string): number {
 }
 
 export default function RevisionProposalNode({ data, selected }: Props) {
-    const s = data.content;
+    const isStreaming = data.status === 'streaming' || !data.content;
 
     return (
         <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[280px] max-w-[340px] ${selected ? 'border-green-500/50' : 'border-[#2a2a2a]'
@@ -37,12 +37,28 @@ export default function RevisionProposalNode({ data, selected }: Props) {
             <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center gap-2">
                 <span className="text-xs">🔧</span>
                 <span className="text-xs font-medium text-[#e5e5e5] flex-1">{data.title}</span>
+                {isStreaming && (
+                    <span className="text-[9px] text-green-400 animate-pulse">분석 중</span>
+                )}
                 {data.status === 'creating' && (
                     <span className="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 rounded animate-pulse">승인 대기</span>
                 )}
             </div>
 
-            <div className="p-3 space-y-2.5">
+            {isStreaming ? (
+                <div className="p-3 space-y-2.5">
+                    <div className="h-3 bg-[#1e1e1e] rounded animate-pulse" style={{ width: '80%' }} />
+                    <div className="h-20 bg-[#0a0a0a] rounded-md animate-pulse" />
+                    <div className="h-20 bg-[#0a0a0a] rounded-md animate-pulse" />
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
+                        <span className="text-[9px] text-[#555]">
+                            수정 제안 생성 중{data.streamingText ? ` · ${data.streamingText.length}자` : ''}
+                        </span>
+                    </div>
+                </div>
+            ) : (
+            <div className="p-3 space-y-2.5">{(() => { const s = data.content; return (<>
                 {/* 요약 */}
                 <p className="text-[11px] text-[#ccc] leading-relaxed">{s.summary}</p>
 
@@ -91,7 +107,9 @@ export default function RevisionProposalNode({ data, selected }: Props) {
                         </div>
                     );
                 })}
+                </>); })()}
             </div>
+            )}
 
             <Handle type="source" position={Position.Right} className="!w-2 !h-2 !bg-green-400 !border-green-600" />
         </div>
