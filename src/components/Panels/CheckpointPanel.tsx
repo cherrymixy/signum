@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 
 export default function CheckpointPanel() {
@@ -11,11 +11,19 @@ export default function CheckpointPanel() {
     const [submitting, setSubmitting] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
+    const checkpointId = pendingCheckpoint?.checkpointId;
+
+    // cp1 → cp2로 직접 전환 시 submitting 상태 초기화
+    useEffect(() => {
+        setSubmitting(false);
+        setErrorMsg('');
+        setCustomInput('');
+    }, [checkpointId]);
+
     if (!pendingCheckpoint) return null;
 
-    const { checkpointId, question, options, context } = pendingCheckpoint;
+    const { question, options, context } = pendingCheckpoint;
 
-    // 전체 체크포인트 중 현재 순서
     const total = checkpoints.length;
     const currentIndex = checkpoints.findIndex((c) => c.checkpointId === checkpointId);
     const label = total > 1 ? `에이전트 확인 요청 ${currentIndex + 1}/${total}` : '에이전트 확인 요청';
@@ -25,8 +33,7 @@ export default function CheckpointPanel() {
         setSubmitting(true);
         setErrorMsg('');
         try {
-            await respondToCheckpoint(checkpointId, response);
-            // 성공 시 store가 pendingCheckpoint = null로 설정 → 패널 언마운트
+            await respondToCheckpoint(checkpointId!, response);
         } catch (err: any) {
             setErrorMsg('전송 실패 — 다시 시도해주세요');
             setSubmitting(false);
@@ -63,10 +70,8 @@ export default function CheckpointPanel() {
                 </div>
 
                 <div className="p-4 space-y-3">
-                    {/* Question */}
                     <p className="text-[13px] text-[#e5e5e5] leading-relaxed font-medium">{question}</p>
 
-                    {/* Context */}
                     {context && (
                         <div className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-lg px-3 py-2">
                             <p className="text-[9px] text-[#555] uppercase tracking-wider mb-0.5">분석 컨텍스트</p>
@@ -74,7 +79,6 @@ export default function CheckpointPanel() {
                         </div>
                     )}
 
-                    {/* Option buttons */}
                     <div className="flex flex-col gap-1.5">
                         {options.map((option, i) => (
                             <button
@@ -93,7 +97,6 @@ export default function CheckpointPanel() {
                         ))}
                     </div>
 
-                    {/* Custom input */}
                     <div className="flex gap-2">
                         <input
                             type="text"
@@ -113,7 +116,6 @@ export default function CheckpointPanel() {
                         </button>
                     </div>
 
-                    {/* Skip */}
                     <div className="flex justify-end">
                         <button
                             onClick={() => handleRespond('')}

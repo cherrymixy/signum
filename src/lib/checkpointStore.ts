@@ -1,52 +1,43 @@
 /**
  * 서버 사이드 체크포인트 스토어
- * 파이프라인 실행 중 사용자 개입을 위한 Promise resolver 저장소
  *
- * Note: 단일 Node.js 프로세스 환경용 (개발/단일 서버).
- *       프로덕션 멀티 인스턴스 환경에서는 Redis pub/sub으로 교체 필요.
+ * Next.js dev 모드에서 webpack이 'global'을 라우트별로 샌드박스할 수 있으므로
+ * Node.js 프로세스 싱글턴인 'process'를 사용.
  */
 
 type Resolver = (response: string) => void;
 
-// Next.js dev 모드에서 모듈이 라우트별로 분리되므로 global에 저장
-declare global {
-    // eslint-disable-next-line no-var
-    var __checkpointStore: Map<string, Resolver> | undefined;
+// process는 webpack 샌드박스 밖의 진짜 Node.js 싱글턴
+const proc = process as any;
+if (!proc.__checkpointStore) {
+    proc.__checkpointStore = new Map<string, Resolver>();
 }
-if (!global.__checkpointStore) {
-    global.__checkpointStore = new Map<string, Resolver>();
-}
-const checkpoints = global.__checkpointStore;
+const checkpoints: Map<string, Resolver> = proc.__checkpointStore;
 
-const TIMEOUT_MS = 3 * 60 * 1000; // 3분 대기 후 자동 스킵
+const TIMEOUT_MS = 3 * 60 * 1000;
 
-/**
- * 체크포인트를 등록하고 사용자 응답을 기다리는 Promise 반환.
- * 타임아웃 시 빈 문자열('')로 resolve → 파이프라인 자동 재개.
- */
 export function registerCheckpoint(checkpointId: string): Promise<string> {
+    console.log(`[CP] register  id=${checkpointId}  mapSize=${checkpoints.size}`);
     return new Promise<string>((resolve) => {
-        // 타이머와 resolver를 단일 래핑 함수로 등록 (이중 set 제거)
         const timer = setTimeout(() => {
             if (checkpoints.has(checkpointId)) {
                 checkpoints.delete(checkpointId);
-                resolve(''); // timeout → skip
+                console.log(`[CP] timeout   id=${checkpointId}`);
+                resolve('');
             }
         }, TIMEOUT_MS);
 
         checkpoints.set(checkpointId, (response: string) => {
             clearTimeout(timer);
             checkpoints.delete(checkpointId);
+            console.log(`[CP] resolved  id=${checkpointId}  response="${response}"`);
             resolve(response);
         });
     });
 }
 
-/**
- * 사용자 응답으로 체크포인트 해결.
- * @returns true: 성공, false: 체크포인트 없음 (이미 타임아웃 또는 없는 ID)
- */
 export function resolveCheckpoint(checkpointId: string, response: string): boolean {
+    console.log(`[CP] resolve   id=${checkpointId}  found=${checkpoints.has(checkpointId)}  mapSize=${checkpoints.size}`);
     const resolver = checkpoints.get(checkpointId);
     if (!resolver) return false;
     resolver(response);

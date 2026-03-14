@@ -302,9 +302,13 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             throw new Error(`HTTP ${res.status}`);
         }
 
-        // 성공: 패널 닫기
+        // 성공: 이 체크포인트가 아직 활성 상태인 경우에만 패널 닫기
+        // (응답 대기 중 다음 checkpoint:request가 도착해 pendingCheckpoint가 교체됐을 수 있음)
         set((state) => ({
-            pendingCheckpoint: null,
+            pendingCheckpoint:
+                state.pendingCheckpoint?.checkpointId === checkpointId
+                    ? null
+                    : state.pendingCheckpoint,
             checkpoints: state.checkpoints.map((c) =>
                 c.checkpointId === checkpointId ? { ...c, status: 'resolved', response } : c
             ),
