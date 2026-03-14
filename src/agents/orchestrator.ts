@@ -81,8 +81,6 @@ export async function runPipeline(
         onProgress?.(structuredClone(state));
 
         const suggestionResult = await runEncodingSuggestionAgent(openai, {
-            imageBase64: input.imageBase64,
-            imageMimeType: input.imageMimeType,
             intentAnalysis: intentResult,
             gapAnalysis: gapResult,
         });

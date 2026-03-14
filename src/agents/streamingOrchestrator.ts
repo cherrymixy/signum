@@ -136,6 +136,11 @@ async function askEnrichmentOrchestrator(
     return JSON.parse(content) as EnrichmentAction;
 }
 
+// ─── 노드 위치 조회 헬퍼 ───
+function nodePos(state: PipelineState, nodeId: string): { x: number; y: number } {
+    return state.nodes.find(n => n.id === nodeId)?.position ?? { x: 0, y: 0 };
+}
+
 // ═══════════════════════════════════════════
 // 메인 파이프라인
 // ═══════════════════════════════════════════
@@ -300,7 +305,7 @@ async function executeIntentAgent(
     const intentIdx = state.nodes.findIndex(n => n.id === nodeId);
     if (intentIdx !== -1) state.nodes[intentIdx] = node; else state.nodes.push(node);
     await delay(100);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.imageNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'intent', cursor, nodePos(state, state.imageNodeId), pos, { id: uuidv4(), source: state.imageNodeId, target: nodeId, animated: true });
 
     const out = await streamAndThink(emitter, 'intent', nodeId, { x: pos.x + 60, y: pos.y + 60 },
         (onToken) => runIntentAgent(openai, { imageBase64: input.imageBase64, imageMimeType: input.imageMimeType, intentText: input.intentText }, onToken),
@@ -339,7 +344,7 @@ async function executeVisualScanAgent(
     const vsIdx = state.nodes.findIndex(n => n.id === nodeId);
     if (vsIdx !== -1) state.nodes[vsIdx] = node; else state.nodes.push(node);
     await delay(100);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.imageNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'orchestrator', cursor, nodePos(state, state.imageNodeId), pos, { id: uuidv4(), source: state.imageNodeId, target: nodeId, animated: true });
 
     const intentFallback: IntentAnalysis = state.intentResult || { coreMessage: input.intentText, emotionalTone: '', callToAction: '', implicitAssumptions: [], summary: '' };
     const out = await streamAndThink(emitter, 'orchestrator', nodeId, { x: pos.x + 60, y: pos.y + 60 },
@@ -386,8 +391,12 @@ async function executeParallelDecoders(
         state.nodes.push(node);
         await delay(60);
 
-        if (state.intentNodeId) emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.intentNodeId, target: nodeId, animated: true } });
-        if (state.visualScanNodeId) emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.visualScanNodeId, target: nodeId, animated: true } });
+        if (state.intentNodeId) {
+            cursor = await connectWithCursor(emitter, 'decoder', cursor, nodePos(state, state.intentNodeId), pos, { id: uuidv4(), source: state.intentNodeId, target: nodeId, animated: true });
+        }
+        if (state.visualScanNodeId) {
+            cursor = await connectWithCursor(emitter, 'decoder', cursor, nodePos(state, state.visualScanNodeId), pos, { id: uuidv4(), source: state.visualScanNodeId, target: nodeId, animated: true });
+        }
 
         nodeInfos.push({ nodeId, pos });
     }
@@ -452,11 +461,13 @@ async function executeGapAgent(
     state.nodes.push(node);
     await delay(100);
 
-    // 모든 decoder + intent → gap 연결
+    // 모든 decoder + intent → gap 연결 (에이전트 커서로)
     for (const dr of state.decodingResults) {
-        emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: dr.nodeId, target: nodeId, animated: true } });
+        cursor = await connectWithCursor(emitter, 'gap', cursor, nodePos(state, dr.nodeId), pos, { id: uuidv4(), source: dr.nodeId, target: nodeId, animated: true });
     }
-    if (state.intentNodeId) emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.intentNodeId, target: nodeId, animated: true } });
+    if (state.intentNodeId) {
+        cursor = await connectWithCursor(emitter, 'gap', cursor, nodePos(state, state.intentNodeId), pos, { id: uuidv4(), source: state.intentNodeId, target: nodeId, animated: true });
+    }
 
     const out = await streamAndThink(emitter, 'gap', nodeId, { x: pos.x + 60, y: pos.y + 80 },
         (onToken) => runGapAnalystAgent(openai, {
@@ -499,7 +510,7 @@ async function executeRevisionAgent(
     emitter.emit({ type: 'node:create', node });
     state.nodes.push(node);
     await delay(100);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'revision', cursor, nodePos(state, state.lastNodeId), pos, { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true });
 
     const out = await streamAndThink(emitter, 'revision', nodeId, { x: pos.x + 60, y: pos.y + 80 },
         (onToken) => runEncodingSuggestionAgent(openai, {
@@ -532,7 +543,7 @@ async function createInsightNode(emitter: SSEEmitter, state: PipelineState, curs
     emitter.emit({ type: 'node:create', node: { id: nodeId, type: 'insight', position: pos, data: { agentId: 'orchestrator', title: '인사이트', content: { message: d.message || '', category: d.category || 'discovery', confidence: d.confidence ?? 70 }, createdAt: Date.now(), status: 'active' } } });
     state.nodes.push({ id: nodeId, type: 'insight', position: pos, data: { agentId: 'orchestrator', title: '인사이트', content: { message: d.message || '', category: d.category || 'discovery', confidence: d.confidence ?? 70 }, createdAt: Date.now(), status: 'active' } });
     await delay(120);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'orchestrator' as AgentId, cursor, nodePos(state, state.lastNodeId), pos, { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true });
     state.lastNodeId = nodeId; state.lastNodePos = pos;
     state.completedSteps.push('insight');
     return cursor;
@@ -546,7 +557,7 @@ async function createComparisonNode(emitter: SSEEmitter, state: PipelineState, c
     emitter.emit({ type: 'node:create', node: { id: nodeId, type: 'comparison', position: pos, data: nodeData } });
     state.nodes.push({ id: nodeId, type: 'comparison', position: pos, data: nodeData });
     await delay(120);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'orchestrator' as AgentId, cursor, nodePos(state, state.lastNodeId), pos, { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true });
     state.lastNodeId = nodeId; state.lastNodePos = pos;
     state.completedSteps.push('comparison');
     return cursor;
@@ -561,7 +572,7 @@ async function createAnnotationNode(emitter: SSEEmitter, state: PipelineState, c
     emitter.emit({ type: 'node:create', node: { id: nodeId, type: 'annotation', position: pos, data: nodeData } });
     state.nodes.push({ id: nodeId, type: 'annotation', position: pos, data: nodeData });
     await delay(120);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: false } });
+    cursor = await connectWithCursor(emitter, annotator, cursor, nodePos(state, state.lastNodeId), pos, { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: false });
     state.completedSteps.push('annotation');
     return cursor;
 }
@@ -574,7 +585,7 @@ async function createSummaryNode(emitter: SSEEmitter, state: PipelineState, curs
     emitter.emit({ type: 'node:create', node: { id: nodeId, type: 'summary', position: pos, data: nodeData } });
     state.nodes.push({ id: nodeId, type: 'summary', position: pos, data: nodeData });
     await delay(120);
-    emitter.emit({ type: 'edge:create', edge: { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true } });
+    cursor = await connectWithCursor(emitter, 'orchestrator' as AgentId, cursor, nodePos(state, state.lastNodeId), pos, { id: uuidv4(), source: state.lastNodeId, target: nodeId, animated: true });
     state.lastNodeId = nodeId; state.lastNodePos = pos;
     state.completedSteps.push('summary');
     return cursor;

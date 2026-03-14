@@ -13,6 +13,7 @@ import {
     PipelineInput,
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { getNextPosition } from '@/lib/layoutEngine';
 
 interface AgentCanvasState {
     // === 캔버스 데이터 ===
@@ -169,16 +170,23 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
 
         // ─── Executor Agent: 이미지 생성 ───
 
-        const execX = 1850;
-        const execY = 60;
+        const execPos = getNextPosition(nodes, 'execution');
+        const execX = execPos.x;
+        const execY = execPos.y;
         updateAgent('executor', {
             status: 'thinking',
-            cursor: { x: execX, y: execY },
+            cursor: { x: execX + 120, y: execY + 50 },
             currentMessage: 'DALL-E로 수정 이미지를 생성합니다...',
         });
         addActivity('executor', 'thinking', 'DALL-E로 수정 이미지 생성 중...');
 
         const execNodeId = uuidv4();
+
+        // 커서 이동 헬퍼
+        const moveCursor = async (toX: number, toY: number, ms = 200) => {
+            updateAgent('executor', { cursor: { x: toX, y: toY } });
+            await new Promise(r => setTimeout(r, ms));
+        };
 
         try {
             // OpenAI API 호출
@@ -206,7 +214,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             addNode({
                 id: execNodeId,
                 type: 'execution',
-                position: { x: execX + 30, y: execY + 40 },
+                position: { x: execX, y: execY },
                 data: {
                     agentId: 'executor',
                     title: '수정 이미지 생성 완료',
@@ -227,7 +235,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             addNode({
                 id: execNodeId,
                 type: 'execution',
-                position: { x: execX + 30, y: execY + 40 },
+                position: { x: execX, y: execY },
                 data: {
                     agentId: 'executor',
                     title: '이미지 생성 오류',
@@ -240,27 +248,34 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
 
         await new Promise((r) => setTimeout(r, 300));
 
-        // Revision → Execution 엣지
+        // Revision → Execution 엣지 (커서 애니메이션)
         if (revisionNode) {
+            const revPos = revisionNode.position;
+            updateAgent('executor', { status: 'connecting' });
+            await moveCursor(revPos.x + 150, revPos.y + 40, 250);
+            await moveCursor(execX + 10, execY + 40, 300);
             addEdge({
                 id: uuidv4(),
                 source: revisionNode.id,
                 target: execNodeId,
                 animated: true,
             });
+            await new Promise((r) => setTimeout(r, 80));
         }
 
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 300));
 
         // Evaluation 노드
         updateAgent('executor', { status: 'creating', currentMessage: '평가 노드를 생성합니다' });
         addActivity('executor', 'creating', '평가 노드 생성');
 
+        const nodesAfterExec = get().nodes;
+        const evalPos = getNextPosition(nodesAfterExec, 'evaluation');
         const evalNodeId = uuidv4();
         addNode({
             id: evalNodeId,
             type: 'evaluation',
-            position: { x: execX + 30, y: execY + 460 },
+            position: { x: evalPos.x, y: evalPos.y },
             data: {
                 title: '최종 평가',
                 content: { summary: '수정 이미지가 생성되었습니다. 원본과 비교하여 인코딩 개선 여부를 확인하세요.' },
@@ -270,7 +285,13 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         });
 
         await new Promise((r) => setTimeout(r, 300));
+
+        // Execution → Evaluation 엣지 (커서 애니메이션)
+        updateAgent('executor', { status: 'connecting' });
+        await moveCursor(execX + 150, execY + 40, 250);
+        await moveCursor(evalPos.x + 10, evalPos.y + 40, 300);
         addEdge({ id: uuidv4(), source: execNodeId, target: evalNodeId, animated: true });
+        await new Promise((r) => setTimeout(r, 80));
 
         // 완료
         updateAgent('executor', { status: 'idle', currentMessage: undefined });
