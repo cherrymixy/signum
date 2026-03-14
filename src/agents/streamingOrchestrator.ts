@@ -503,7 +503,6 @@ async function executeRevisionAgent(
 
     const out = await streamAndThink(emitter, 'revision', nodeId, { x: pos.x + 60, y: pos.y + 80 },
         (onToken) => runEncodingSuggestionAgent(openai, {
-            imageBase64: input.imageBase64, imageMimeType: input.imageMimeType,
             intentAnalysis: state.intentResult!, gapAnalysis: state.gapResult!,
             visualScan: state.visualScanResult,
             userContext: state.userContext.join('\n') || undefined,
