@@ -70,7 +70,7 @@ export default function RevisionProposalNode({ data, selected }: Props) {
                     return (
                         <div key={i} className="bg-[#0a0a0a] rounded-md p-2.5 space-y-2">
                             {/* 영역 + 우선순위 dot */}
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <div
                                     className="w-2 h-2 rounded-full shrink-0"
                                     style={{ backgroundColor: p.color, boxShadow: `0 0 6px ${p.glow}` }}
@@ -78,6 +78,24 @@ export default function RevisionProposalNode({ data, selected }: Props) {
                                 <span className="text-[11px] text-green-300 font-medium flex-1">{item.area}</span>
                                 <span className="text-[8px] text-[#555] uppercase">{item.priority}</span>
                             </div>
+
+                            {/* 시각 요소 + 현재 문제 */}
+                            {(item.visualElement || item.currentIssue) && (
+                                <div className="bg-[#141414] rounded px-2 py-1.5 space-y-0.5">
+                                    {item.visualElement && (
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[8px] text-amber-400/60 uppercase tracking-wider shrink-0">요소</span>
+                                            <span className="text-[9px] text-amber-300/80 truncate">{item.visualElement}</span>
+                                        </div>
+                                    )}
+                                    {item.currentIssue && (
+                                        <div className="flex items-start gap-1.5">
+                                            <span className="text-[8px] text-red-400/60 uppercase tracking-wider shrink-0 mt-px">문제</span>
+                                            <span className="text-[9px] text-red-300/70 leading-snug">{item.currentIssue}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* 제안 내용 */}
                             <p className="text-[10px] text-[#bbb] leading-relaxed">{item.suggestion}</p>

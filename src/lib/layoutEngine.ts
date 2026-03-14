@@ -17,9 +17,10 @@ const NODE_W = 320;          // 노드 예상 너비 (max-w 기준 + 여유)
 const NODE_HEIGHT: Partial<Record<CanvasNodeType, number>> = {
     imageInput: 220,
     intentAnalysis: 340,
+    visualScan: 340,
     decodingHypothesis: 290,
-    gapAnalysis: 380,
-    revisionProposal: 320,
+    gapAnalysis: 420,
+    revisionProposal: 360,
     execution: 420,
     evaluation: 220,
     insight: 170,
@@ -35,6 +36,7 @@ const ROW_GAP = 40;          // 노드 간 세로 여백 (높이와 별도)
 const AGENT_COLUMN: Partial<Record<CanvasNodeType, number>> = {
     imageInput: 0,
     intentAnalysis: 1,
+    visualScan: 1,
     decodingHypothesis: 2,
     gapAnalysis: 3,
     revisionProposal: 4,
@@ -43,7 +45,7 @@ const AGENT_COLUMN: Partial<Record<CanvasNodeType, number>> = {
 };
 
 // 자율 노드의 고정 열 — 핵심 에이전트 열 오른쪽 끝 다음
-const AUTONOMOUS_COLUMN = 5;
+const AUTONOMOUS_COLUMN = 6;
 
 function getNodeHeight(nodeType: CanvasNodeType): number {
     return NODE_HEIGHT[nodeType] ?? DEFAULT_NODE_H;

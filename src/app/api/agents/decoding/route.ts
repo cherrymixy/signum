@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
         const openai = new OpenAI({ apiKey });
         const result = await runDecodingAgent(openai, {
-            imageBase64, imageMimeType, intentAnalysis, targetPreset, contextPreset,
+            imageBase64, imageMimeType, intentAnalysis, targetPreset, contextPreset, perspective: 'target',
         });
 
         return NextResponse.json({ success: true, data: result });

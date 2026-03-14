@@ -110,8 +110,8 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                     const sev = SEVERITY_STYLES[gap.severity] || SEVERITY_STYLES.low;
                     return (
                         <div key={i} className="bg-[#0a0a0a] rounded-md p-2 space-y-1.5">
-                            {/* 심각도 + 차원 */}
-                            <div className="flex items-center gap-2">
+                            {/* 심각도 + 차원 + 시각 요소 */}
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <span
                                     className="text-[8px] font-bold px-1.5 py-0.5 rounded tracking-wider"
                                     style={{ color: sev.color, backgroundColor: sev.bg }}
@@ -119,6 +119,11 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                                     {sev.label}
                                 </span>
                                 <span className="text-[11px] text-orange-300 font-medium">{gap.dimension}</span>
+                                {gap.visualElement && (
+                                    <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400/80 border border-amber-500/20 truncate max-w-[120px]">
+                                        {gap.visualElement}
+                                    </span>
+                                )}
                             </div>
 
                             {/* 의도 → 해석 흐름 */}
@@ -139,6 +144,14 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                                     <p className="text-[10px] text-[#bbb]">{gap.decoded}</p>
                                 </div>
                             </div>
+
+                            {/* Fix Hint */}
+                            {gap.fixHint && (
+                                <div className="flex items-start gap-1 pt-0.5">
+                                    <span className="text-[9px] text-green-500/60 shrink-0">→</span>
+                                    <span className="text-[9px] text-green-400/70 leading-snug">{gap.fixHint}</span>
+                                </div>
+                            )}
                         </div>
                     );
                 })}

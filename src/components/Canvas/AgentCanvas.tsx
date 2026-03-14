@@ -16,6 +16,7 @@ import NodeToolbox from './NodeToolbox';
 
 import ImageInputNode from '../Nodes/ImageInputNode';
 import IntentAnalysisNode from '../Nodes/IntentAnalysisNode';
+import VisualScanNode from '../Nodes/VisualScanNode';
 import DecodingHypothesisNode from '../Nodes/DecodingHypothesisNode';
 import GapAnalysisNode from '../Nodes/GapAnalysisNode';
 import RevisionProposalNode from '../Nodes/RevisionProposalNode';
@@ -30,6 +31,7 @@ import SummaryNode from '../Nodes/SummaryNode';
 const nodeTypes = {
     imageInput: ImageInputNode,
     intentAnalysis: IntentAnalysisNode,
+    visualScan: VisualScanNode,
     decodingHypothesis: DecodingHypothesisNode,
     gapAnalysis: GapAnalysisNode,
     revisionProposal: RevisionProposalNode,

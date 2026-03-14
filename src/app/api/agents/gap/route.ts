@@ -5,7 +5,7 @@ import { runGapAnalystAgent } from '@/agents/gapAnalystAgent';
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { intentAnalysis, decodingResult } = body;
+        const { intentAnalysis, decodingResult, decodingResults } = body;
 
         if (!intentAnalysis) {
             return NextResponse.json(
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
                 { status: 400 }
             );
         }
-        if (!decodingResult) {
+        const results = decodingResults ?? (decodingResult ? [decodingResult] : null);
+        if (!results) {
             return NextResponse.json(
                 { error: { code: 'VALIDATION_ERROR', message: 'Decoding 분석 결과가 필요합니다.' } },
                 { status: 400 }
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
         }
 
         const openai = new OpenAI({ apiKey });
-        const result = await runGapAnalystAgent(openai, { intentAnalysis, decodingResult });
+        const result = await runGapAnalystAgent(openai, { intentAnalysis, decodingResults: results });
 
         return NextResponse.json({ success: true, data: result });
     } catch (error: any) {

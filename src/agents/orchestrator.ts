@@ -58,6 +58,7 @@ export async function runPipeline(
             intentAnalysis: intentResult,
             targetPreset: input.targetPreset,
             contextPreset: input.contextPreset,
+            perspective: 'target',
         });
 
         state.decodingStep = { status: 'done', result: decodingResult };
@@ -69,7 +70,7 @@ export async function runPipeline(
 
         const gapResult = await runGapAnalystAgent(openai, {
             intentAnalysis: intentResult,
-            decodingResult: decodingResult,
+            decodingResults: [decodingResult],
         });
 
         state.gapStep = { status: 'done', result: gapResult };
