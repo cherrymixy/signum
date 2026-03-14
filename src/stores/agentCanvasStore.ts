@@ -80,8 +80,8 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
 
     input: {
         intentText: '',
-        targetPreset: '',
-        contextPreset: '',
+        targetPreset: 'general',
+        contextPreset: 'brand-ad',
     },
 
     // === Actions ===

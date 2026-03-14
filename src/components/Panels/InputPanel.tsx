@@ -63,7 +63,9 @@ export default function InputPanel() {
         await applyFile(file);
     }, [applyFile]);
 
-    const isReady = input.imageBase64 && input.intentText?.trim() && input.targetPreset && input.contextPreset;
+    const missingImage = !input.imageBase64;
+    const missingIntent = !input.intentText?.trim();
+    const isReady = !missingImage && !missingIntent;
     const isRunning = pipelineStatus === 'running';
 
     return (
@@ -119,7 +121,6 @@ export default function InputPanel() {
                         className="mt-1 w-full bg-[#141414] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-[#ccc] focus:outline-none focus:border-violet-500/50"
                         disabled={isRunning}
                     >
-                        <option value="">선택하세요</option>
                         {TARGET_PRESETS.map((p) => (
                             <option key={p.value} value={p.value}>{p.label}</option>
                         ))}
@@ -135,7 +136,6 @@ export default function InputPanel() {
                         className="mt-1 w-full bg-[#141414] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-[#ccc] focus:outline-none focus:border-violet-500/50"
                         disabled={isRunning}
                     >
-                        <option value="">선택하세요</option>
                         {CONTEXT_PRESETS.map((p) => (
                             <option key={p.value} value={p.value}>{p.label}</option>
                         ))}
@@ -171,6 +171,11 @@ export default function InputPanel() {
                 >
                     {isRunning ? 'Agents 분석 중...' : '🚀 분석 시작'}
                 </button>
+                {!isRunning && !isReady && (
+                    <p className="mt-2 text-[10px] text-[#555] text-center">
+                        {missingImage ? '이미지를 업로드하세요' : '의도를 입력하세요'}
+                    </p>
+                )}
             </div>
         </div>
     );
