@@ -8,7 +8,16 @@
 
 type Resolver = (response: string) => void;
 
-const checkpoints = new Map<string, Resolver>();
+// Next.js dev 모드에서 모듈이 라우트별로 분리되므로 global에 저장
+declare global {
+    // eslint-disable-next-line no-var
+    var __checkpointStore: Map<string, Resolver> | undefined;
+}
+if (!global.__checkpointStore) {
+    global.__checkpointStore = new Map<string, Resolver>();
+}
+const checkpoints = global.__checkpointStore;
+
 const TIMEOUT_MS = 3 * 60 * 1000; // 3분 대기 후 자동 스킵
 
 /**
