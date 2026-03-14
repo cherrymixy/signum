@@ -75,10 +75,11 @@ export function getNextPosition(
     newNodeType: CanvasNodeType,
     _nearNodeId?: string,
 ): { x: number; y: number } {
-    // 핵심 에이전트 노드 → 고정 열 배치
+    // 핵심 에이전트 노드 → 고정 열 배치 (같은 열에 있는 노드 수 기준으로 행 결정)
     if (AGENT_COLUMN[newNodeType] !== undefined) {
-        const sameTypeCount = existingNodes.filter(n => n.type === newNodeType).length;
-        return getNodePosition(newNodeType, sameTypeCount);
+        const col = AGENT_COLUMN[newNodeType]!;
+        const sameColCount = existingNodes.filter(n => AGENT_COLUMN[n.type] === col).length;
+        return getNodePosition(newNodeType, sameColCount);
     }
 
     // 자율 노드 → 마지막 핵심 노드의 열에서 아래에 순차 배치

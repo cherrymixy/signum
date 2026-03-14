@@ -7,6 +7,7 @@ import { CanvasNodeType } from '@/types';
 
 const NODE_TOOLS: { type: CanvasNodeType; icon: string; label: string }[] = [
     { type: 'intentAnalysis', icon: '💡', label: 'Intent' },
+    { type: 'visualScan', icon: '👁', label: 'Visual Scan' },
     { type: 'decodingHypothesis', icon: '👁️', label: 'Decode' },
     { type: 'gapAnalysis', icon: '⚡', label: 'Gap' },
     { type: 'revisionProposal', icon: '🔧', label: 'Revision' },
