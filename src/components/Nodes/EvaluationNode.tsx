@@ -10,7 +10,7 @@ interface Props {
 
 export default function EvaluationNode({ data, selected }: Props) {
     return (
-        <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[240px] ${selected ? 'border-emerald-500/50' : 'border-[#2a2a2a]'
+        <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[240px] max-w-[320px] ${selected ? 'border-emerald-500/50' : 'border-[#2a2a2a]'
             }`}>
             <Handle type="target" position={Position.Left} className="!w-2 !h-2 !bg-emerald-400 !border-emerald-600" />
             <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center gap-2">

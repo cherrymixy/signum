@@ -19,7 +19,7 @@ interface ImageInputNodeProps {
 
 export default function ImageInputNode({ data, selected }: ImageInputNodeProps) {
     return (
-        <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[240px] ${selected ? 'border-white/30' : 'border-[#2a2a2a]'
+        <div className={`agent-node agent-node-enter bg-[#141414] rounded-lg border min-w-[240px] max-w-[300px] ${selected ? 'border-white/30' : 'border-[#2a2a2a]'
             }`}>
             <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-white/60" />

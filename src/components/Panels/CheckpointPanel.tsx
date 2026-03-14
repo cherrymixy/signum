@@ -5,20 +5,32 @@ import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 
 export default function CheckpointPanel() {
     const pendingCheckpoint = useAgentCanvasStore((s) => s.pendingCheckpoint);
+    const checkpoints = useAgentCanvasStore((s) => s.checkpoints);
     const respondToCheckpoint = useAgentCanvasStore((s) => s.respondToCheckpoint);
     const [customInput, setCustomInput] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
 
     if (!pendingCheckpoint) return null;
 
     const { checkpointId, question, options, context } = pendingCheckpoint;
 
+    // 전체 체크포인트 중 현재 순서
+    const total = checkpoints.length;
+    const currentIndex = checkpoints.findIndex((c) => c.checkpointId === checkpointId);
+    const label = total > 1 ? `에이전트 확인 요청 ${currentIndex + 1}/${total}` : '에이전트 확인 요청';
+
     const handleRespond = async (response: string) => {
         if (submitting) return;
         setSubmitting(true);
-        setCustomInput('');
-        await respondToCheckpoint(checkpointId, response);
-        setSubmitting(false);
+        setErrorMsg('');
+        try {
+            await respondToCheckpoint(checkpointId, response);
+            // 성공 시 store가 pendingCheckpoint = null로 설정 → 패널 언마운트
+        } catch (err: any) {
+            setErrorMsg('전송 실패 — 다시 시도해주세요');
+            setSubmitting(false);
+        }
     };
 
     const handleCustomSubmit = () => {
@@ -32,13 +44,21 @@ export default function CheckpointPanel() {
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-[#1e1e1e] flex items-center gap-2.5">
                     <div className="flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-                        <span className="text-[10px] text-violet-400 uppercase tracking-wider font-medium">에이전트 확인 요청</span>
+                        <div className={`w-1.5 h-1.5 rounded-full ${submitting ? 'bg-amber-400 animate-ping' : 'bg-violet-400 animate-pulse'}`} />
+                        <span className="text-[10px] text-violet-400 uppercase tracking-wider font-medium">{label}</span>
                     </div>
-                    <div className="ml-auto flex items-center gap-1">
-                        <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="ml-auto">
+                        {errorMsg ? (
+                            <span className="text-[10px] text-red-400">{errorMsg}</span>
+                        ) : submitting ? (
+                            <span className="text-[10px] text-amber-400">전송 중...</span>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <div className="w-1 h-1 rounded-full bg-[#333] animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </div>
+                        )}
                     </div>
                 </div>
 

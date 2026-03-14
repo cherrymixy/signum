@@ -23,16 +23,25 @@ const CONTEXT_PRESETS = [
     { value: 'poster', label: '포스터/전단지' },
 ];
 
+const MAX_IMAGE_MB = 8;
+
 export default function InputPanel() {
     const input = useAgentCanvasStore((s) => s.input);
     const setInput = useAgentCanvasStore((s) => s.setInput);
     const pipelineStatus = useAgentCanvasStore((s) => s.pipelineStatus);
+    const pipelineError = useAgentCanvasStore((s) =>
+        s.pipelineStatus === 'error' ? s.activityLog.find((l) => l.action === 'error')?.detail : undefined
+    );
     const { startStream } = useAgentStream();
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [fileError, setFileError] = useState<string | null>(null);
 
-    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const applyFile = useCallback(async (file: File) => {
+        setFileError(null);
+        if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+            setFileError(`이미지는 ${MAX_IMAGE_MB}MB 이하여야 합니다 (현재: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+            return;
+        }
         const { base64, mimeType } = await fileToBase64(file);
         setInput({ imageBase64: base64, imageMimeType: mimeType, fileName: file.name });
         setPreviewUrl((prev) => {
@@ -40,18 +49,19 @@ export default function InputPanel() {
             return URL.createObjectURL(file);
         });
     }, [setInput]);
+
+    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        await applyFile(file);
+    }, [applyFile]);
 
     const handleDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault();
         const file = e.dataTransfer.files?.[0];
         if (!file || !file.type.startsWith('image/')) return;
-        const { base64, mimeType } = await fileToBase64(file);
-        setInput({ imageBase64: base64, imageMimeType: mimeType, fileName: file.name });
-        setPreviewUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return URL.createObjectURL(file);
-        });
-    }, [setInput]);
+        await applyFile(file);
+    }, [applyFile]);
 
     const isReady = input.imageBase64 && input.intentText?.trim() && input.targetPreset && input.contextPreset;
     const isRunning = pipelineStatus === 'running';
@@ -132,6 +142,20 @@ export default function InputPanel() {
                     </select>
                 </div>
             </div>
+
+            {/* 파일 에러 */}
+            {fileError && (
+                <div className="mx-4 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-[10px] text-red-400">
+                    {fileError}
+                </div>
+            )}
+
+            {/* 파이프라인 에러 */}
+            {pipelineStatus === 'error' && pipelineError && (
+                <div className="mx-4 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-[10px] text-red-400">
+                    오류: {pipelineError}
+                </div>
+            )}
 
             {/* 실행 버튼 */}
             <div className="p-4 border-t border-[#1a1a1a]">

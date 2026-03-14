@@ -25,13 +25,30 @@ export async function POST(request: NextRequest) {
     }
 
     const stream = new ReadableStream({
-        start(controller) {
+        async start(controller) {
             const emitter = new SSEEmitter(controller);
 
-            runStreamingPipeline(
-                { imageBase64, imageMimeType, intentText, targetPreset, contextPreset },
-                emitter
-            );
+            // 즉시 heartbeat — 클라이언트에게 연결 성공을 알림
+            emitter.emit({
+                type: 'agent:status',
+                agentId: 'orchestrator',
+                status: 'thinking',
+                message: '연결됨, 파이프라인 시작...',
+            });
+
+            try {
+                await runStreamingPipeline(
+                    { imageBase64, imageMimeType, intentText, targetPreset, contextPreset },
+                    emitter
+                );
+            } catch (err: any) {
+                emitter.emit({ type: 'error', message: err?.message || '파이프라인 오류' });
+            } finally {
+                emitter.close();
+            }
+        },
+        cancel() {
+            // 클라이언트가 연결을 끊으면 별도 정리 불필요 (finally에서 close)
         },
     });
 
@@ -40,6 +57,7 @@ export async function POST(request: NextRequest) {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
             Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
         },
     });
 }

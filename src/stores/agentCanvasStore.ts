@@ -278,32 +278,37 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
     },
 
     respondToCheckpoint: async (checkpointId, response) => {
-        // 낙관적 업데이트: 패널 즉시 닫기
+        // 서버에 응답 전송 후 성공 시에만 패널 닫기
+        const res = await fetch('/api/agents/checkpoint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ checkpointId, response }),
+        });
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            // 타임아웃(404): 파이프라인이 이미 자동 재개 → 패널만 닫기
+            if (res.status === 404 && body?.error === 'timeout') {
+                console.warn('[Checkpoint] 타임아웃으로 자동 재개됨:', checkpointId);
+                set((state) => ({
+                    pendingCheckpoint: null,
+                    checkpoints: state.checkpoints.map((c) =>
+                        c.checkpointId === checkpointId ? { ...c, status: 'resolved', response: '' } : c
+                    ),
+                }));
+                return;
+            }
+            // 그 외 오류: throw → CheckpointPanel이 error 상태 처리
+            throw new Error(`HTTP ${res.status}`);
+        }
+
+        // 성공: 패널 닫기
         set((state) => ({
             pendingCheckpoint: null,
             checkpoints: state.checkpoints.map((c) =>
-                c.checkpointId === checkpointId
-                    ? { ...c, status: 'resolved', response }
-                    : c
+                c.checkpointId === checkpointId ? { ...c, status: 'resolved', response } : c
             ),
         }));
-        // 서버에 응답 전송 → 파이프라인 재개
-        try {
-            const res = await fetch('/api/agents/checkpoint', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ checkpointId, response }),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        } catch (err: any) {
-            // 전송 실패 시 체크포인트 패널 복원
-            const { checkpoints } = get();
-            const checkpoint = checkpoints.find((c) => c.checkpointId === checkpointId);
-            if (checkpoint) {
-                set({ pendingCheckpoint: { ...checkpoint, status: 'pending' } });
-            }
-            console.error('[Checkpoint] 응답 전송 실패:', err.message);
-        }
     },
 
     handleSSEEvent: (event) => {

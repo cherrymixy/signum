@@ -8,10 +8,10 @@
 import { CanvasNodeType, CanvasNode } from '@/types';
 
 // 기본 배치 상수
-const COL_WIDTH = 380;
-const BASE_X = 120;
+const COL_WIDTH = 420;
+const BASE_X = 80;
 const BASE_Y = 80;
-const NODE_W = 340;          // 노드 예상 너비 (max-w-[340px] 기준)
+const NODE_W = 360;          // 노드 예상 너비 (max-w-[360px] 기준)
 
 // 노드 타입별 예상 높이 (실제 컴포넌트 기준)
 const NODE_HEIGHT: Partial<Record<CanvasNodeType, number>> = {
@@ -30,7 +30,7 @@ const NODE_HEIGHT: Partial<Record<CanvasNodeType, number>> = {
     summary: 300,
 };
 const DEFAULT_NODE_H = 280;
-const ROW_GAP = 40;          // 노드 간 세로 여백 (높이와 별도)
+const ROW_GAP = 60;          // 노드 간 세로 여백 (높이와 별도)
 
 // 핵심 에이전트 노드의 고정 열 번호
 const AGENT_COLUMN: Partial<Record<CanvasNodeType, number>> = {

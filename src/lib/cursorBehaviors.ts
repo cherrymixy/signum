@@ -21,26 +21,16 @@ function pick<T>(arr: T[]): T {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** Bézier 곡선 웨이포인트 */
+/** 직선 이동 (중간 웨이포인트 1개) */
 function bezierPath(
     from: { x: number; y: number },
     to: { x: number; y: number },
-    steps: number = 4,
 ): { x: number; y: number }[] {
-    const points: { x: number; y: number }[] = [];
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const cx = from.x + dx * 0.5 + rand(-30, 30);
-    const cy = from.y + dy * 0.5 - Math.abs(dx) * 0.08 + rand(-20, 20);
-
-    for (let i = 1; i <= steps; i++) {
-        const t = i / (steps + 1);
-        const x = (1 - t) * (1 - t) * from.x + 2 * (1 - t) * t * cx + t * t * to.x + rand(-3, 3);
-        const y = (1 - t) * (1 - t) * from.y + 2 * (1 - t) * t * cy + t * t * to.y + rand(-3, 3);
-        points.push({ x: Math.round(x), y: Math.round(y) });
-    }
-    points.push({ x: to.x, y: to.y });
-    return points;
+    const mid = {
+        x: Math.round((from.x + to.x) / 2),
+        y: Math.round((from.y + to.y) / 2),
+    };
+    return [mid, { x: to.x, y: to.y }];
 }
 
 // ─── Core Movement ───
@@ -56,13 +46,9 @@ export async function moveTo(
     durationMs: number = 400,
 ): Promise<{ x: number; y: number }> {
     const waypoints = bezierPath(from, to);
-    const n = waypoints.length;
-    for (let i = 0; i < n; i++) {
-        emitter.emit({ type: 'cursor:move', agentId, x: waypoints[i].x, y: waypoints[i].y });
-        // ease-in-out: 양 끝 느리게
-        const t = i / (n - 1);
-        const ease = 0.5 - 0.5 * Math.cos(Math.PI * t);
-        const segMs = Math.max(30, Math.round(ease * durationMs / n * 2));
+    const segMs = Math.max(40, Math.round(durationMs / waypoints.length));
+    for (const wp of waypoints) {
+        emitter.emit({ type: 'cursor:move', agentId, x: wp.x, y: wp.y });
         await delay(segMs);
     }
     return to;
@@ -79,15 +65,16 @@ export async function fidget(
     count: number = 3,
     amplitude: number = 8,
 ): Promise<{ x: number; y: number }> {
-    let pos = { ...center };
-    for (let i = 0; i < count; i++) {
-        const x = Math.round(center.x + rand(-amplitude, amplitude));
-        const y = Math.round(center.y + rand(-amplitude, amplitude));
+    // 진폭/횟수를 절반으로 제한해 과도한 떨림 방지
+    const clampedCount = Math.min(count, 2);
+    const clampedAmp = Math.min(amplitude, 4);
+    for (let i = 0; i < clampedCount; i++) {
+        const x = Math.round(center.x + rand(-clampedAmp, clampedAmp));
+        const y = Math.round(center.y + rand(-clampedAmp, clampedAmp));
         emitter.emit({ type: 'cursor:move', agentId, x, y });
-        pos = { x, y };
-        await delay(Math.round(rand(80, 180)));
+        await delay(120);
     }
-    return pos;
+    return center;
 }
 
 /**
@@ -101,27 +88,12 @@ export async function wander(
     interestPoints: { x: number; y: number }[],
     durationMs: number = 2000,
 ): Promise<{ x: number; y: number }> {
-    if (interestPoints.length === 0) {
-        return await fidget(emitter, agentId, currentPos, 6, 15);
-    }
+    if (interestPoints.length === 0) return currentPos;
 
-    let pos = { ...currentPos };
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < durationMs) {
-        // 랜덤 관심 지점 선택
-        const target = pick(interestPoints);
-        // 정확히 그 위치가 아닌, 약간 옆에서 "보는" 위치
-        const lookAt = {
-            x: target.x + Math.round(rand(-30, 60)),
-            y: target.y + Math.round(rand(-25, 25)),
-        };
-        pos = await moveTo(emitter, agentId, pos, lookAt, 300);
-        // 잠시 멈추며 "확인"
-        await delay(Math.round(rand(150, 400)));
-        // fidget
-        pos = await fidget(emitter, agentId, pos, 2, 5);
-    }
+    // 최대 1개 포인트만 방문
+    const target = pick(interestPoints);
+    const pos = await moveTo(emitter, agentId, currentPos, target, Math.min(durationMs, 400));
+    await delay(100);
     return pos;
 }
 
@@ -135,15 +107,10 @@ export async function scan(
     currentPos: { x: number; y: number },
     nodePositions: { x: number; y: number }[],
 ): Promise<{ x: number; y: number }> {
-    let pos = { ...currentPos };
-    // 노드 1~2개만 빠르게 훑기
-    const toScan = nodePositions.slice(-3).filter(() => Math.random() > 0.3);
-    for (const np of toScan) {
-        const lookAt = { x: np.x + 80, y: np.y + 20 };
-        pos = await moveTo(emitter, agentId, pos, lookAt, 250);
-        await delay(Math.round(rand(100, 250)));
-    }
-    return pos;
+    // 마지막 노드 한 개만 빠르게 방문
+    const last = nodePositions[nodePositions.length - 1];
+    if (!last) return currentPos;
+    return moveTo(emitter, agentId, currentPos, { x: last.x + 80, y: last.y + 20 }, 200);
 }
 
 /**
@@ -153,21 +120,11 @@ export async function revisit(
     emitter: SSEEmitter,
     agentId: AgentId,
     currentPos: { x: number; y: number },
-    nodeA: { x: number; y: number },
+    _nodeA: { x: number; y: number },
     nodeB: { x: number; y: number },
 ): Promise<{ x: number; y: number }> {
-    let pos = { ...currentPos };
-
-    // 소스 노드 확인
-    pos = await moveTo(emitter, agentId, pos, { x: nodeA.x + 60, y: nodeA.y + 25 }, 280);
-    pos = await fidget(emitter, agentId, pos, 2, 4);
-    await delay(Math.round(rand(100, 200)));
-
-    // 새 노드 확인
-    pos = await moveTo(emitter, agentId, pos, { x: nodeB.x + 60, y: nodeB.y + 25 }, 280);
-    pos = await fidget(emitter, agentId, pos, 2, 4);
-
-    return pos;
+    // 새 노드 위치만 한 번 방문
+    return moveTo(emitter, agentId, currentPos, { x: nodeB.x + 60, y: nodeB.y + 25 }, 250);
 }
 
 /**
