@@ -46,30 +46,32 @@ export async function runEncodingSuggestionAgent(
         ? `\n[현재 시각 신호]\n${input.visualScan.dominantSignals.slice(0, 3).map(s => `${s.element}: ${s.decoded}`).join('\n')}`
         : '';
 
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        {
+            role: 'user',
+            content: [
+                {
+                    type: 'text',
+                    text: `[원본 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n\n[Gap 분석]\n일치도: ${input.gapAnalysis.overallAlignmentScore}/100\n핵심 발견: ${input.gapAnalysis.criticalFindings}\n\n${gapDescriptions}${visualText}\n\n각 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.${input.userContext ? `\n\n[사용자 우선순위 지시]\n${input.userContext}` : ''}`,
+                },
+                {
+                    type: 'image_url',
+                    image_url: { url: `data:${input.imageMimeType};base64,${input.imageBase64}` },
+                },
+            ],
+        },
+    ];
+
+    // 스트리밍 시도
+    let accumulated = '';
     const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
-        messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            {
-                role: 'user',
-                content: [
-                    {
-                        type: 'text',
-                        text: `[원본 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n\n[Gap 분석]\n일치도: ${input.gapAnalysis.overallAlignmentScore}/100\n핵심 발견: ${input.gapAnalysis.criticalFindings}\n\n${gapDescriptions}${visualText}\n\n각 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.${input.userContext ? `\n\n[사용자 우선순위 지시]\n${input.userContext}` : ''}`,
-                    },
-                    {
-                        type: 'image_url',
-                        image_url: { url: `data:${input.imageMimeType};base64,${input.imageBase64}` },
-                    },
-                ],
-            },
-        ],
+        messages,
         max_tokens: 3000,
         response_format: { type: 'json_object' },
         stream: true,
     });
-
-    let accumulated = '';
     for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content || '';
         if (delta) {
@@ -78,7 +80,20 @@ export async function runEncodingSuggestionAgent(
         }
     }
 
-    if (!accumulated) throw new Error('Encoding Suggestion Agent: 빈 응답');
+    // 빈 응답 시 non-streaming으로 재시도 (vision + json_object + stream 조합 간헐적 이슈)
+    if (!accumulated) {
+        const fallback = await openai.chat.completions.create({
+            model: 'gpt-4o',
+            messages,
+            max_tokens: 3000,
+            response_format: { type: 'json_object' },
+            stream: false,
+        });
+        accumulated = fallback.choices[0]?.message?.content || '';
+        if (accumulated) onToken?.(accumulated);
+    }
+
+    if (!accumulated) throw new Error('Encoding Suggestion Agent: 빈 응답 (재시도 후)');
     const result = JSON.parse(accumulated) as EncodingSuggestions;
 
     return {
