@@ -9,7 +9,7 @@ import { SSEEvent } from '@/types';
  * /api/agents/stream에 연결하여 에이전트 이벤트를 실시간으로 수신
  */
 export function useAgentStream() {
-    const store = useAgentCanvasStore();
+    // store 전체 구독 제거 — 내부에서 getState() 직접 사용
     const abortRef = useRef<AbortController | null>(null);
 
     const startStream = useCallback(async () => {
@@ -85,6 +85,12 @@ export function useAgentStream() {
                         // 파싱 실패 무시
                     }
                 }
+            }
+
+            // 스트림이 pipeline:done 이벤트 없이 종료된 경우 상태 복구
+            const currentStatus = useAgentCanvasStore.getState().pipelineStatus;
+            if (currentStatus === 'running') {
+                handleSSEEvent({ type: 'error', message: '스트림이 예기치 않게 종료되었습니다' });
             }
         } catch (error: any) {
             if (error.name !== 'AbortError') {

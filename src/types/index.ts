@@ -35,6 +35,7 @@ export interface AgentRuntimeState {
 export type CanvasNodeType =
     | 'imageInput'
     | 'intentAnalysis'
+    | 'visualScan'
     | 'decodingHypothesis'
     | 'gapAnalysis'
     | 'revisionProposal'
@@ -45,6 +46,23 @@ export type CanvasNodeType =
     | 'comparison'
     | 'annotation'
     | 'summary';
+
+export type DecodingPerspective = 'target' | 'critical' | 'intuitive';
+
+export interface VisualSignal {
+    element: string;
+    decoded: string;
+    emotion: string;
+    strength: 'strong' | 'moderate' | 'weak';
+}
+
+export interface VisualScanResult {
+    overallImpression: string;
+    dominantSignals: VisualSignal[];
+    colorMood: string;
+    attentionFlow: string;
+    unintendedSignals: string[];
+}
 
 export interface CanvasNode {
     id: string;
@@ -174,6 +192,7 @@ export interface DecodingHypothesisItem {
 }
 
 export interface DecodingHypothesisSet {
+    perspective?: DecodingPerspective;
     targetPersona: string;
     context: string;
     hypotheses: DecodingHypothesisItem[];
@@ -182,10 +201,12 @@ export interface DecodingHypothesisSet {
 
 export interface GapItem {
     dimension: string;
+    visualElement: string;
     intended: string;
     decoded: string;
     severity: 'high' | 'medium' | 'low';
     cause: string;
+    fixHint: string;
 }
 
 export interface GapAnalysis {
@@ -196,6 +217,8 @@ export interface GapAnalysis {
 
 export interface SuggestionItem {
     area: string;
+    visualElement: string;
+    currentIssue: string;
     suggestion: string;
     expectedImpact: string;
     tradeoff: string;

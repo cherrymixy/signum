@@ -288,11 +288,22 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             ),
         }));
         // 서버에 응답 전송 → 파이프라인 재개
-        await fetch('/api/agents/checkpoint', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkpointId, response }),
-        });
+        try {
+            const res = await fetch('/api/agents/checkpoint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ checkpointId, response }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        } catch (err: any) {
+            // 전송 실패 시 체크포인트 패널 복원
+            const { checkpoints } = get();
+            const checkpoint = checkpoints.find((c) => c.checkpointId === checkpointId);
+            if (checkpoint) {
+                set({ pendingCheckpoint: { ...checkpoint, status: 'pending' } });
+            }
+            console.error('[Checkpoint] 응답 전송 실패:', err.message);
+        }
     },
 
     handleSSEEvent: (event) => {

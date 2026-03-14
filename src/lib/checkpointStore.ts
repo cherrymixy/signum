@@ -26,8 +26,7 @@ const TIMEOUT_MS = 3 * 60 * 1000; // 3분 대기 후 자동 스킵
  */
 export function registerCheckpoint(checkpointId: string): Promise<string> {
     return new Promise<string>((resolve) => {
-        checkpoints.set(checkpointId, resolve);
-
+        // 타이머와 resolver를 단일 래핑 함수로 등록 (이중 set 제거)
         const timer = setTimeout(() => {
             if (checkpoints.has(checkpointId)) {
                 checkpoints.delete(checkpointId);
@@ -35,12 +34,10 @@ export function registerCheckpoint(checkpointId: string): Promise<string> {
             }
         }, TIMEOUT_MS);
 
-        // GC 방지: resolve 시 타이머 정리
-        const original = resolve;
         checkpoints.set(checkpointId, (response: string) => {
             clearTimeout(timer);
             checkpoints.delete(checkpointId);
-            original(response);
+            resolve(response);
         });
     });
 }

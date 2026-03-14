@@ -35,7 +35,10 @@ export default function InputPanel() {
         if (!file) return;
         const { base64, mimeType } = await fileToBase64(file);
         setInput({ imageBase64: base64, imageMimeType: mimeType, fileName: file.name });
-        setPreviewUrl(URL.createObjectURL(file));
+        setPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(file);
+        });
     }, [setInput]);
 
     const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -44,7 +47,10 @@ export default function InputPanel() {
         if (!file || !file.type.startsWith('image/')) return;
         const { base64, mimeType } = await fileToBase64(file);
         setInput({ imageBase64: base64, imageMimeType: mimeType, fileName: file.name });
-        setPreviewUrl(URL.createObjectURL(file));
+        setPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(file);
+        });
     }, [setInput]);
 
     const isReady = input.imageBase64 && input.intentText?.trim() && input.targetPreset && input.contextPreset;

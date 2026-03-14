@@ -395,6 +395,10 @@ async function executeParallelDecoders(
     // 2. 3개 API 동시 실행
     emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'thinking', message: '3개 관점 병렬 분석 중...' });
 
+    // 결과를 인덱스 순서로 저장해 perspectives 순서를 항상 보장
+    const decodingResultSlots: ({ perspective: DecodingPerspective; result: DecodingHypothesisSet; nodeId: string } | null)[]
+        = new Array(perspectives.length).fill(null);
+
     await Promise.all(perspectives.map(async (persp, i) => {
         const { nodeId } = nodeInfos[i];
         try {
@@ -407,13 +411,16 @@ async function executeParallelDecoders(
             }, (text) => emitter.emit({ type: 'node:update', nodeId, data: { streamingText: text } }));
 
             const dominant = result.hypotheses.sort((a, b) => b.probability - a.probability)[0];
-            state.decodingResults.push({ perspective: persp.id, result, nodeId });
+            decodingResultSlots[i] = { perspective: persp.id, result, nodeId };
 
             emitter.emit({ type: 'node:update', nodeId, data: { title: persp.title, content: dominant, streamingText: undefined, status: 'active' } });
         } catch (e: any) {
             emitter.emit({ type: 'node:update', nodeId, data: { status: 'active', content: { interpretation: '분석 오류', probability: 0, reasoning: e.message, emotionalResponse: '오류' } } });
         }
     }));
+
+    // null 슬롯 제거 후 순서 보장된 배열로 추가
+    state.decodingResults = decodingResultSlots.filter((r): r is NonNullable<typeof r> => r !== null);
 
     emitter.emit({ type: 'agent:status', agentId: 'decoder', status: 'idle' });
 

@@ -41,12 +41,22 @@ export default function ActivityFeed() {
                             <span className={`text-[11px] flex-1 ${isActive ? 'text-[#ccc]' : 'text-[#555]'}`}>
                                 {def.name}
                             </span>
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded ${agent.status === 'thinking' ? 'bg-amber-500/10 text-amber-400 animate-pulse' :
-                                agent.status === 'creating' || agent.status === 'connecting' ? `text-[${def.color}]` :
+                            <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded ${
+                                    agent.status === 'thinking' ? 'bg-amber-500/10 text-amber-400 animate-pulse' :
                                     agent.status === 'waitingApproval' ? 'bg-amber-500/10 text-amber-400' :
-                                        agent.status === 'error' ? 'bg-red-500/10 text-red-400' :
-                                            'text-[#444]'
-                                }`} style={isActive && agent.status !== 'thinking' && agent.status !== 'waitingApproval' && agent.status !== 'error' ? { color: def.color, backgroundColor: `${def.color}15` } : {}}>
+                                    agent.status === 'error' ? 'bg-red-500/10 text-red-400' :
+                                    'text-[#444]'
+                                }`}
+                                style={
+                                    isActive &&
+                                    agent.status !== 'thinking' &&
+                                    agent.status !== 'waitingApproval' &&
+                                    agent.status !== 'error'
+                                        ? { color: def.color, backgroundColor: `${def.color}15` }
+                                        : {}
+                                }
+                            >
                                 {STATUS_LABELS[agent.status]}
                             </span>
                         </div>

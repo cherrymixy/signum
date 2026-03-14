@@ -11,7 +11,7 @@ import { CanvasNodeType, CanvasNode } from '@/types';
 const COL_WIDTH = 380;
 const BASE_X = 120;
 const BASE_Y = 80;
-const NODE_W = 320;          // 노드 예상 너비 (max-w 기준 + 여유)
+const NODE_W = 340;          // 노드 예상 너비 (max-w-[340px] 기준)
 
 // 노드 타입별 예상 높이 (실제 컴포넌트 기준)
 const NODE_HEIGHT: Partial<Record<CanvasNodeType, number>> = {

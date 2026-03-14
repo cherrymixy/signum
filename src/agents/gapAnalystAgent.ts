@@ -1,37 +1,36 @@
 import OpenAI from 'openai';
-import { IntentAnalysis, DecodingHypothesisSet, GapAnalysis } from '@/types';
+import { IntentAnalysis, DecodingHypothesisSet, GapAnalysis, VisualScanResult } from '@/types';
 
-const SYSTEM_PROMPT = `당신은 커뮤니케이션 Gap 분석 전문가입니다. 창작자의 의도와 수용자의 예상 해석 사이의 차이를 분석하는 역할을 합니다.
+const SYSTEM_PROMPT = `당신은 시각 커뮤니케이션 Gap 분석 전문가입니다.
+창작자 의도, 시각 신호 분석, 복수의 수용자 해석 관점을 종합하여 Gap을 식별하세요.
 
-창작자의 구조화된 의도와 수용자 관점 해석 가설을 비교하여 Gap을 식별하세요.
+각 Gap은 반드시 특정 시각 요소(visualElement)와 연결되어야 하며, 해결 방향(fixHint)을 포함해야 합니다.
 
 다음 JSON 형식으로 응답하세요:
-
 {
   "gaps": [
     {
-      "dimension": "차이 발생 차원 (메시지/감성/행동유도 중 하나)",
+      "dimension": "차이 발생 차원 (메시지/감성/행동유도/신뢰 중 하나)",
+      "visualElement": "이 gap을 유발하는 구체적 시각 요소 (예: '파란색 배경', '작은 CTA 버튼')",
       "intended": "창작자가 의도한 것",
-      "decoded": "수용자가 해석할 가능성이 높은 것",
+      "decoded": "수용자가 실제로 해석하는 것 (복수 관점 종합)",
       "severity": "high/medium/low",
-      "cause": "이 차이가 발생하는 원인"
+      "cause": "이 차이가 발생하는 근본 원인",
+      "fixHint": "이 gap을 줄이기 위한 핵심 시각적 수정 방향 (한 줄)"
     }
   ],
   "overallAlignmentScore": 0~100,
   "criticalFindings": "핵심 발견 요약 한 줄"
 }
 
-심각도 기준:
-- high: 의도와 정반대로 해석될 위험
-- medium: 의도가 약화되거나 왜곡될 가능성
-- low: 미세한 뉘앙스 차이
-
+심각도: high=의도 역전/부정 반응, medium=약화/왜곡, low=뉘앙스 차이
 한국어로 작성하세요. JSON만 반환하세요.`;
 
 export interface GapAnalystInput {
     intentAnalysis: IntentAnalysis;
-    decodingResult: DecodingHypothesisSet;
-    userContext?: string; // 체크포인트에서 수집한 사용자 지시
+    visualScan?: VisualScanResult;
+    decodingResults: DecodingHypothesisSet[];
+    userContext?: string;
 }
 
 export async function runGapAnalystAgent(
@@ -39,28 +38,32 @@ export async function runGapAnalystAgent(
     input: GapAnalystInput,
     onToken?: (accumulated: string) => void,
 ): Promise<GapAnalysis> {
+    const perspectiveLabels: Record<string, string> = {
+        target: '타겟 관점',
+        critical: '비판적 관점',
+        intuitive: '직관적 관점',
+    };
+
+    const decodingText = input.decodingResults.map((dr, i) => {
+        const label = dr.perspective ? (perspectiveLabels[dr.perspective] || `관점 ${i + 1}`) : `관점 ${i + 1}`;
+        const top2 = dr.hypotheses.slice(0, 2).map(h => `  · (${(h.probability * 100).toFixed(0)}%) ${h.interpretation} → ${h.emotionalResponse}`).join('\n');
+        return `[${label}] ${dr.dominantInterpretation}\n${top2}`;
+    }).join('\n\n');
+
+    const visualText = input.visualScan
+        ? `\n[시각 신호]\n첫인상: ${input.visualScan.overallImpression} | 색상: ${input.visualScan.colorMood}\n신호: ${input.visualScan.dominantSignals.map(s => `${s.element}(${s.strength})→${s.decoded}`).join(', ')}\n미의도 신호: ${input.visualScan.unintendedSignals.join(', ') || '없음'}`
+        : '';
+
     const stream = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             {
                 role: 'user',
-                content: `[창작자 의도]
-핵심 메시지: ${input.intentAnalysis.coreMessage}
-감성 톤: ${input.intentAnalysis.emotionalTone}
-행동 유도: ${input.intentAnalysis.callToAction}
-암묵적 가정: ${input.intentAnalysis.implicitAssumptions.join(', ')}
-
-[수용자 해석 가설]
-타겟: ${input.decodingResult.targetPersona}
-컨텍스트: ${input.decodingResult.context}
-우세 해석: ${input.decodingResult.dominantInterpretation}
-${input.decodingResult.hypotheses.map((h, i) => `가설 ${i + 1} (${(h.probability * 100).toFixed(0)}%): ${h.interpretation} — 감정 반응: ${h.emotionalResponse}`).join('\n')}
-
-위 의도와 해석을 비교하여 Gap을 분석하세요.${input.userContext ? `\n\n[사용자 지시 — 이 방향으로 분석해주세요]\n${input.userContext}` : ''}`,
+                content: `[창작자 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n행동 유도: ${input.intentAnalysis.callToAction}\n암묵적 가정: ${input.intentAnalysis.implicitAssumptions.join(', ')}${visualText}\n\n[수용자 해석 관점들]\n${decodingText}\n\n위 분석을 종합하여 Gap을 식별하세요. 각 Gap은 구체적 시각 요소와 연결하세요.${input.userContext ? `\n\n[사용자 지시]\n${input.userContext}` : ''}`,
             },
         ],
-        max_tokens: 2000,
+        max_tokens: 2500,
         response_format: { type: 'json_object' },
         stream: true,
     });
