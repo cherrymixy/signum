@@ -1,6 +1,6 @@
 // === Agent System Types ===
 
-export type AgentId = 'intent' | 'decoder' | 'gap' | 'revision' | 'executor' | 'orchestrator';
+export type AgentId = 'intent' | 'decoder' | 'gap' | 'revision' | 'executor' | 'orchestrator' | 'human';
 
 export type AgentStatus =
     | 'idle'

@@ -6,6 +6,7 @@ import InputPanel from '@/components/Panels/InputPanel';
 import ActivityFeed from '@/components/Panels/ActivityFeed';
 import ApprovalDock from '@/components/Panels/ApprovalDock';
 import CheckpointPanel from '@/components/Panels/CheckpointPanel';
+import ContinuationPanel from '@/components/Panels/ContinuationPanel';
 
 export default function Home() {
   return (
@@ -18,6 +19,7 @@ export default function Home() {
         <AgentCanvas />
         <ApprovalDock />
         <CheckpointPanel />
+        <ContinuationPanel />
       </div>
 
       {/* 오른쪽: 활동 피드 */}

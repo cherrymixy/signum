@@ -49,8 +49,23 @@ export const AGENT_DEFINITIONS: AgentDefinition[] = [
         icon: '🚀',
         description: '승인된 수정안을 실행하고 결과를 평가합니다.',
     },
+    {
+        id: 'human' as any,
+        name: '사용자',
+        role: '직접 입력',
+        color: '#94a3b8',
+        icon: '✍️',
+        description: '사용자가 직접 추가한 노드입니다.',
+    },
 ];
 
 export function getAgentDef(agentId: string): AgentDefinition {
-    return AGENT_DEFINITIONS.find((a) => a.id === agentId) || AGENT_DEFINITIONS[0];
+    return AGENT_DEFINITIONS.find((a) => a.id === agentId) || {
+        id: agentId as any,
+        name: '사용자',
+        role: '직접 입력',
+        color: '#94a3b8',
+        icon: '✍️',
+        description: '',
+    };
 }

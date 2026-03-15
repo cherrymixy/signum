@@ -5,6 +5,7 @@ import {
     AgentId,
     AgentRuntimeState,
     CanvasNode,
+    CanvasNodeType,
     CanvasEdge,
     ApprovalItem,
     CheckpointItem,
@@ -41,6 +42,9 @@ interface AgentCanvasState {
         contextPreset: string;
     };
 
+    // === Continuation 상태 ===
+    continuationStatus: 'idle' | 'running' | 'done' | 'error';
+
     // === Actions ===
     setInput: (input: Partial<AgentCanvasState['input']>) => void;
     addNode: (node: CanvasNode) => void;
@@ -55,6 +59,9 @@ interface AgentCanvasState {
     handleSSEEvent: (event: SSEEvent) => void;
     startPipeline: () => void;
     resetCanvas: () => void;
+    startContinuation: () => void;
+    endContinuation: (status: 'done' | 'error') => void;
+    addHumanNode: (type: CanvasNodeType) => string;
 }
 
 const initialAgents: Record<AgentId, AgentRuntimeState> = {
@@ -64,6 +71,7 @@ const initialAgents: Record<AgentId, AgentRuntimeState> = {
     gap: { agentId: 'gap', status: 'idle', cursor: { x: 0, y: 0 } },
     revision: { agentId: 'revision', status: 'idle', cursor: { x: 0, y: 0 } },
     executor: { agentId: 'executor', status: 'idle', cursor: { x: 0, y: 0 } },
+    human: { agentId: 'human', status: 'idle', cursor: { x: 0, y: 0 } },
 };
 
 export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
@@ -77,6 +85,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
     activityLog: [],
     pipelineStatus: 'idle',
     pipelineSummary: undefined,
+    continuationStatus: 'idle',
 
     input: {
         intentText: '',
@@ -450,6 +459,40 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                 addActivity('intent', 'error', event.message);
                 break;
         }
+    },
+
+    startContinuation: () => set({ continuationStatus: 'running' }),
+
+    endContinuation: (status) => set({ continuationStatus: status }),
+
+    addHumanNode: (type) => {
+        const { nodes } = get();
+        const pos = getNextPosition(nodes, type);
+        const nodeId = uuidv4();
+
+        let content: any = {};
+        if (type === 'annotation') {
+            content = { comment: '', targetNodeId: '', annotatorAgent: 'human' };
+        } else if (type === 'question') {
+            content = { question: '', answer: undefined, status: 'exploring' };
+        } else if (type === 'insight') {
+            content = { message: '', category: 'discovery', confidence: 80 };
+        }
+
+        const node: CanvasNode = {
+            id: nodeId,
+            type,
+            position: pos,
+            data: {
+                agentId: 'human' as any,
+                title: type === 'annotation' ? '메모' : type === 'question' ? 'AI 질문' : '인사이트',
+                content,
+                createdAt: Date.now(),
+                status: 'active',
+            },
+        };
+        get().addNode(node);
+        return nodeId;
     },
 
     startPipeline: () =>
