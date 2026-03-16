@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useAgentCanvasStore } from '@/stores/agentCanvasStore';
 import { useAgentStream } from '@/hooks/useAgentStream';
 import { fileToBase64 } from '@/lib/api';
+import { loadCreatorProfile } from '@/lib/creatorProfile';
 
 const TARGET_PRESETS = [
     { value: 'gen-z-female', label: '10~20대 여성' },
@@ -32,9 +33,19 @@ export default function InputPanel() {
     const pipelineError = useAgentCanvasStore((s) =>
         s.pipelineStatus === 'error' ? s.activityLog.find((l) => l.action === 'error')?.detail : undefined
     );
+    const compareStatus = useAgentCanvasStore((s) => s.compareStatus);
+    const setCompareImage = useAgentCanvasStore((s) => s.setCompareImage);
+    const runCompareAnalysis = useAgentCanvasStore((s) => s.runCompareAnalysis);
     const { startStream } = useAgentStream();
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [fileError, setFileError] = useState<string | null>(null);
+    const [comparePreviewUrl, setComparePreviewUrl] = useState<string | null>(null);
+    const [profileCount, setProfileCount] = useState<number>(0);
+
+    useEffect(() => {
+        const profile = loadCreatorProfile();
+        if (profile?.totalCount) setProfileCount(profile.totalCount);
+    }, []);
 
     const applyFile = useCallback(async (file: File) => {
         setFileError(null);
@@ -63,10 +74,22 @@ export default function InputPanel() {
         await applyFile(file);
     }, [applyFile]);
 
+    const handleCompareFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const { base64, mimeType } = await fileToBase64(file);
+        setCompareImage(base64, mimeType);
+        setComparePreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(file);
+        });
+    }, [setCompareImage]);
+
     const missingImage = !input.imageBase64;
     const missingIntent = !input.intentText?.trim();
     const isReady = !missingImage && !missingIntent;
     const isRunning = pipelineStatus === 'running';
+    const isDone = pipelineStatus === 'done';
 
     return (
         <div className="w-72 h-full bg-[#0f0f0f] border-r border-[#1a1a1a] flex flex-col overflow-hidden">
@@ -74,7 +97,14 @@ export default function InputPanel() {
             <div className="px-4 py-3 border-b border-[#1a1a1a] flex items-center gap-2">
                 <img src="/logo.png" alt="Signum" className="w-5 h-5" />
                 <span className="text-sm font-semibold text-[#e5e5e5]">Signum</span>
-                <span className="text-[10px] text-violet-400 bg-violet-500/10 px-1.5 rounded ml-auto">AI Agents</span>
+                <div className="ml-auto flex items-center gap-1.5">
+                    {profileCount > 0 && (
+                        <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 rounded" title={`${profileCount}회 분석 이력 반영 중`}>
+                            ◉ {profileCount}회
+                        </span>
+                    )}
+                    <span className="text-[10px] text-violet-400 bg-violet-500/10 px-1.5 rounded">AI Agents</span>
+                </div>
             </div>
 
             {/* 이미지 업로드 */}
@@ -154,6 +184,39 @@ export default function InputPanel() {
             {pipelineStatus === 'error' && pipelineError && (
                 <div className="mx-4 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-[10px] text-red-400">
                     오류: {pipelineError}
+                </div>
+            )}
+
+            {/* A/B 비교 섹션 — 파이프라인 완료 후 표시 */}
+            {isDone && (
+                <div className="px-4 pb-3 border-t border-[#1a1a1a] pt-3 space-y-2">
+                    <label className="text-[10px] text-[#888] uppercase tracking-wide">A/B 비교 이미지</label>
+                    <div
+                        className="border border-dashed border-[#2a2a2a] rounded-lg p-2 text-center cursor-pointer hover:border-sky-500/40 transition-colors"
+                        onClick={() => document.getElementById('compare-file-input')?.click()}
+                    >
+                        {comparePreviewUrl ? (
+                            <img src={comparePreviewUrl} alt="비교 이미지" className="w-full h-20 object-cover rounded" />
+                        ) : (
+                            <p className="text-[10px] text-[#555] py-2">비교할 이미지 업로드</p>
+                        )}
+                    </div>
+                    <input id="compare-file-input" type="file" accept="image/*" onChange={handleCompareFile} className="hidden" />
+                    {comparePreviewUrl && (
+                        <button
+                            onClick={runCompareAnalysis}
+                            disabled={compareStatus === 'running'}
+                            className={`w-full py-2 rounded-lg text-xs font-semibold transition-all ${
+                                compareStatus === 'running'
+                                    ? 'bg-sky-500/20 text-sky-300 cursor-wait animate-pulse'
+                                    : compareStatus === 'done'
+                                    ? 'bg-sky-500/10 text-sky-400 border border-sky-500/30'
+                                    : 'bg-sky-500/80 hover:bg-sky-500 text-white active:scale-[0.98]'
+                            }`}
+                        >
+                            {compareStatus === 'running' ? '비교 분석 중...' : compareStatus === 'done' ? '✓ 비교 완료' : '⚡ A/B 비교 분석'}
+                        </button>
+                    )}
                 </div>
             )}
 

@@ -29,6 +29,8 @@ export interface EncodingSuggestionInput {
     gapAnalysis: GapAnalysis;
     visualScan?: VisualScanResult;
     userContext?: string;
+    platformContext?: string;
+    profileContext?: string;
 }
 
 export async function runEncodingSuggestionAgent(
@@ -45,7 +47,7 @@ export async function runEncodingSuggestionAgent(
         : '';
 
     // 이미지 분석은 Intent/VisualScan/Gap 단계에서 완료됨 — 여기서는 텍스트 결과만 사용
-    const userText = `[원본 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n\n[Gap 분석]\n일치도: ${input.gapAnalysis.overallAlignmentScore}/100\n핵심 발견: ${input.gapAnalysis.criticalFindings}\n\n${gapDescriptions}${visualText}\n\n각 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.${input.userContext ? `\n\n[사용자 우선순위 지시]\n${input.userContext}` : ''}`;
+    const userText = `[원본 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n\n[Gap 분석]\n일치도: ${input.gapAnalysis.overallAlignmentScore}/100\n핵심 발견: ${input.gapAnalysis.criticalFindings}\n\n${gapDescriptions}${visualText}${input.platformContext ? `\n\n[플랫폼 특성 — 이 플랫폼에 최적화된 제안 필요]\n${input.platformContext}` : ''}${input.profileContext ? `\n\n${input.profileContext}` : ''}\n\n각 Gap을 줄이기 위한 구체적인 시각적 수정 방향을 제안하세요.${input.userContext ? `\n\n[사용자 우선순위 지시]\n${input.userContext}` : ''}`;
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
         { role: 'system', content: SYSTEM_PROMPT },

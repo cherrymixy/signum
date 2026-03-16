@@ -15,6 +15,7 @@ import {
 } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { getNextPosition } from '@/lib/layoutEngine';
+import { loadCreatorProfile, saveAnalysisToProfile, buildProfileContext } from '@/lib/creatorProfile';
 
 interface AgentCanvasState {
     // === 캔버스 데이터 ===
@@ -40,10 +41,16 @@ interface AgentCanvasState {
         intentText: string;
         targetPreset: string;
         contextPreset: string;
+        profileContext?: string;
     };
 
     // === Continuation 상태 ===
     continuationStatus: 'idle' | 'running' | 'done' | 'error';
+
+    // === A/B 비교 상태 ===
+    compareStatus: 'idle' | 'running' | 'done' | 'error';
+    compareImageBase64?: string;
+    compareImageMimeType?: string;
 
     // === Actions ===
     setInput: (input: Partial<AgentCanvasState['input']>) => void;
@@ -62,6 +69,8 @@ interface AgentCanvasState {
     startContinuation: () => void;
     endContinuation: (status: 'done' | 'error') => void;
     addHumanNode: (type: CanvasNodeType) => string;
+    setCompareImage: (base64: string, mimeType: string) => void;
+    runCompareAnalysis: () => Promise<void>;
 }
 
 const initialAgents: Record<AgentId, AgentRuntimeState> = {
@@ -86,11 +95,15 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
     pipelineStatus: 'idle',
     pipelineSummary: undefined,
     continuationStatus: 'idle',
+    compareStatus: 'idle',
+    compareImageBase64: undefined,
+    compareImageMimeType: undefined,
 
     input: {
         intentText: '',
         targetPreset: 'general',
         contextPreset: 'brand-ad',
+        profileContext: undefined,
     },
 
     // === Actions ===
@@ -197,6 +210,7 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             await new Promise(r => setTimeout(r, ms));
         };
 
+        let executionResult: any = null;
         try {
             // OpenAI API 호출
             const response = await fetch('/api/agents/execute', {
@@ -215,6 +229,8 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             if (!response.ok || !result.success) {
                 throw new Error(result.error?.message || '이미지 생성 실패');
             }
+
+            executionResult = result;
 
             // Execution 노드 생성 (생성된 이미지 포함)
             updateAgent('executor', { status: 'creating', currentMessage: '수정 이미지 노드를 생성합니다' });
@@ -270,6 +286,67 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                 animated: true,
             });
             await new Promise((r) => setTimeout(r, 80));
+        }
+
+        await new Promise((r) => setTimeout(r, 300));
+
+        // ── Verification Loop: 수정 이미지를 재분석해 개선도 확인 ──
+        const verifyIntentNode = get().nodes.find((n) => n.type === 'intentAnalysis');
+        const verifyGapNode = get().nodes.find((n) => n.type === 'gapAnalysis');
+        const intentAnalysis = verifyIntentNode?.data.content;
+        const originalScore: number = verifyGapNode?.data.content?.overallAlignmentScore ?? 0;
+
+        if (intentAnalysis && executionResult?.data?.generatedImageBase64) {
+            updateAgent('executor', { status: 'thinking', currentMessage: '수정 이미지를 재분석합니다...' });
+            addActivity('executor', 'thinking', '수정 이미지 품질 검증 중...');
+
+            try {
+                const verifyRes = await fetch('/api/agents/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        generatedImageBase64: executionResult.data.generatedImageBase64,
+                        generatedImageMimeType: executionResult.data.generatedImageMimeType || 'image/png',
+                        intentAnalysis,
+                        originalScore,
+                    }),
+                });
+
+                if (verifyRes.ok) {
+                    const verifyData = await verifyRes.json();
+                    if (verifyData.success) {
+                        const { newScore, improvement } = verifyData.data as { newScore: number; improvement: number };
+                        const category: 'discovery' | 'pattern' | 'warning' =
+                            improvement >= 10 ? 'discovery' : improvement >= 0 ? 'pattern' : 'warning';
+                        const sign = improvement >= 0 ? '+' : '';
+                        const message =
+                            improvement >= 10
+                                ? `검증 완료 — 일치도 ${originalScore}% → ${newScore}% (${sign}${improvement}p 개선됨)`
+                                : improvement >= 0
+                                ? `검증 완료 — 일치도 ${originalScore}% → ${newScore}% (${sign}${improvement}p)`
+                                : `검증 완료 — 일치도 ${originalScore}% → ${newScore}% (${sign}${improvement}p). 추가 수정을 고려하세요.`;
+
+                        const verifyNodeId = uuidv4();
+                        const verifyPos = getNextPosition(get().nodes, 'insight');
+                        addNode({
+                            id: verifyNodeId,
+                            type: 'insight',
+                            position: verifyPos,
+                            data: {
+                                agentId: 'executor',
+                                title: '수정 이미지 검증',
+                                content: { message, category, confidence: newScore },
+                                createdAt: Date.now(),
+                                status: 'active',
+                            },
+                        });
+                        addEdge({ id: uuidv4(), source: execNodeId, target: verifyNodeId, animated: false });
+                        addActivity('executor', 'idle', message);
+                    }
+                }
+            } catch {
+                // 검증 실패는 이미지 생성 자체를 방해하지 않음
+            }
         }
 
         await new Promise((r) => setTimeout(r, 300));
@@ -446,9 +523,23 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
                 }));
                 break;
 
-            case 'pipeline:done':
+            case 'pipeline:done': {
                 set({ pipelineStatus: 'done', pipelineSummary: event.summary });
+                // 분석 이력을 크리에이터 프로필에 저장
+                const { nodes: doneNodes, input: doneInput } = get();
+                const doneGapNode = doneNodes.find(n => n.type === 'gapAnalysis');
+                if (doneGapNode?.data?.content?.overallAlignmentScore !== undefined) {
+                    saveAnalysisToProfile({
+                        timestamp: Date.now(),
+                        alignmentScore: doneGapNode.data.content.overallAlignmentScore,
+                        criticalFindings: doneGapNode.data.content.criticalFindings || '',
+                        gapDimensions: (doneGapNode.data.content.gaps || []).map((g: any) => g.dimension).filter(Boolean),
+                        targetPreset: doneInput.targetPreset,
+                        contextPreset: doneInput.contextPreset,
+                    });
+                }
                 break;
+            }
 
             case 'orchestrator:thinking':
                 addActivity('orchestrator', 'thinking', `${event.reasoning} → ${event.nextAction}`);
@@ -464,6 +555,80 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
     startContinuation: () => set({ continuationStatus: 'running' }),
 
     endContinuation: (status) => set({ continuationStatus: status }),
+
+    setCompareImage: (base64, mimeType) => set({ compareImageBase64: base64, compareImageMimeType: mimeType, compareStatus: 'idle' }),
+
+    runCompareAnalysis: async () => {
+        const { nodes, input, compareImageBase64, compareImageMimeType, addNode, addEdge, addActivity } = get();
+        if (!compareImageBase64) return;
+
+        const intentNode = nodes.find(n => n.type === 'intentAnalysis');
+        const gapNode = nodes.find(n => n.type === 'gapAnalysis');
+        const intentAnalysis = intentNode?.data?.content;
+        const originalScore: number = gapNode?.data?.content?.overallAlignmentScore ?? 0;
+
+        if (!intentAnalysis) return;
+
+        set({ compareStatus: 'running' });
+        addActivity('orchestrator', 'thinking', 'A/B 비교 분석 시작...');
+
+        try {
+            const res = await fetch('/api/agents/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    imageBase64B: compareImageBase64,
+                    imageMimeTypeB: compareImageMimeType || 'image/jpeg',
+                    intentAnalysis,
+                    originalScore,
+                    contextPreset: input.contextPreset,
+                }),
+            });
+
+            if (!res.ok) throw new Error('비교 분석 API 오류');
+            const data = await res.json();
+
+            if (!data.success) throw new Error(data.error?.message || '비교 실패');
+
+            const { scoreA, scoreB, diff, winner, criticalFindingsB } = data.data;
+            const winnerLabel = winner === 'A' ? '원본 이미지 우세' : winner === 'B' ? '비교 이미지 우세' : '유사한 성능';
+            const sign = diff >= 0 ? '+' : '';
+
+            const comparePos = getNextPosition(nodes, 'comparison');
+            const compareNodeId = uuidv4();
+
+            addNode({
+                id: compareNodeId,
+                type: 'comparison',
+                position: comparePos,
+                data: {
+                    agentId: 'orchestrator',
+                    title: 'A/B 비교 결과',
+                    content: {
+                        leftLabel: `이미지 A (원본)`,
+                        leftContent: `일치도 ${scoreA}%\n${gapNode?.data?.content?.criticalFindings || ''}`,
+                        rightLabel: `이미지 B (비교)`,
+                        rightContent: `일치도 ${scoreB}% (${sign}${diff}p)\n${criticalFindingsB}`,
+                        verdict: winnerLabel,
+                        winner: winner === 'A' ? 'left' : winner === 'B' ? 'right' : 'neutral',
+                    },
+                    createdAt: Date.now(),
+                    status: 'active',
+                },
+            });
+
+            // gapNode → comparisonNode 엣지
+            if (gapNode) {
+                addEdge({ id: uuidv4(), source: gapNode.id, target: compareNodeId, animated: false });
+            }
+
+            addActivity('orchestrator', 'idle', `A/B 비교 완료 — ${winnerLabel} (A: ${scoreA}%, B: ${scoreB}%)`);
+            set({ compareStatus: 'done' });
+        } catch (error: any) {
+            addActivity('orchestrator', 'error', error.message);
+            set({ compareStatus: 'error' });
+        }
+    },
 
     addHumanNode: (type) => {
         const { nodes } = get();
@@ -495,8 +660,11 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
         return nodeId;
     },
 
-    startPipeline: () =>
-        set({
+    startPipeline: () => {
+        // 크리에이터 프로필 로드 → input에 profileContext 주입
+        const profile = loadCreatorProfile();
+        const profileContext = profile ? buildProfileContext(profile) : undefined;
+        set((state) => ({
             pipelineStatus: 'running',
             nodes: [],
             edges: [],
@@ -506,7 +674,9 @@ export const useAgentCanvasStore = create<AgentCanvasState>((set, get) => ({
             activityLog: [],
             agents: { ...initialAgents },
             pipelineSummary: undefined,
-        }),
+            input: { ...state.input, profileContext },
+        }));
+    },
 
     resetCanvas: () =>
         set({

@@ -207,6 +207,8 @@ export interface GapItem {
     severity: 'high' | 'medium' | 'low';
     cause: string;
     fixHint: string;
+    confidence?: number; // 0-100: 이 Gap 판단의 신뢰도
+    bbox?: { x: number; y: number; w: number; h: number }; // 이미지 내 위치 (0~1 정규화)
 }
 
 export interface GapAnalysis {
@@ -238,6 +240,7 @@ export interface PipelineInput {
     intentText: string;
     targetPreset: string;
     contextPreset: string;
+    profileContext?: string; // 크리에이터 이력 컨텍스트 (클라이언트에서 주입)
 }
 
 // ==========================================================

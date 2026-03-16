@@ -37,6 +37,7 @@ export function useAgentStream() {
                     intentText: input.intentText,
                     targetPreset: input.targetPreset,
                     contextPreset: input.contextPreset,
+                    profileContext: input.profileContext,
                 }),
                 signal: abortController.signal,
             });

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { IntentAnalysis, DecodingHypothesisSet, DecodingPerspective, VisualScanResult } from '@/types';
+import { getPlatformContext } from '@/lib/platformContexts';
 
 const PERSPECTIVE_PROMPTS: Record<DecodingPerspective, string> = {
     target: `당신은 지정된 타겟 페르소나의 관점에서 이미지를 해석하는 전문가입니다.
@@ -62,7 +63,7 @@ export async function runDecodingAgent(
                 content: [
                     {
                         type: 'text',
-                        text: `[창작자 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n행동 유도: ${input.intentAnalysis.callToAction}${visualText}\n\n[분석 조건]\n타겟: ${input.targetPreset}\n플랫폼: ${input.contextPreset}\n\n이 관점에서 이미지를 해석하세요.`,
+                        text: `[창작자 의도]\n핵심 메시지: ${input.intentAnalysis.coreMessage}\n감성 톤: ${input.intentAnalysis.emotionalTone}\n행동 유도: ${input.intentAnalysis.callToAction}${visualText}\n\n[분석 조건]\n타겟: ${input.targetPreset}\n플랫폼: ${input.contextPreset}${getPlatformContext(input.contextPreset) ? `\n플랫폼 특성: ${getPlatformContext(input.contextPreset)}` : ''}\n\n이 관점에서 이미지를 해석하세요.`,
                     },
                     {
                         type: 'image_url',

@@ -8,7 +8,7 @@ export const maxDuration = 300; // 5분 — 자율 오케스트레이터는 긴 
 
 export async function POST(request: NextRequest) {
     const body = await request.json();
-    const { imageBase64, imageMimeType, intentText, targetPreset, contextPreset } = body;
+    const { imageBase64, imageMimeType, intentText, targetPreset, contextPreset, profileContext } = body;
 
     // Validation
     if (!imageBase64 || !imageMimeType) {
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
             try {
                 await runStreamingPipeline(
-                    { imageBase64, imageMimeType, intentText, targetPreset, contextPreset },
+                    { imageBase64, imageMimeType, intentText, targetPreset, contextPreset, profileContext },
                     emitter
                 );
             } catch (err: any) {

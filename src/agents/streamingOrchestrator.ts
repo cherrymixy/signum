@@ -10,6 +10,8 @@ import { runVisualScanAgent } from './visualScanAgent';
 import { runDecodingAgent } from './decodingAgent';
 import { runGapAnalystAgent } from './gapAnalystAgent';
 import { runEncodingSuggestionAgent } from './encodingSuggestionAgent';
+import { runClarificationAgent } from './clarificationAgent';
+import { getPlatformContext } from '@/lib/platformContexts';
 import { registerCheckpoint } from '@/lib/checkpointStore';
 import {
     PipelineInput, CanvasNode, CanvasEdge, AgentId,
@@ -145,7 +147,7 @@ function nodePos(state: PipelineState, nodeId: string): { x: number; y: number }
 // 메인 파이프라인
 // ═══════════════════════════════════════════
 
-export async function runStreamingPipeline(input: PipelineInput, emitter: SSEEmitter) {
+export async function runStreamingPipeline(rawInput: PipelineInput, emitter: SSEEmitter) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
         emitter.emit({ type: 'error', message: 'OPENAI_API_KEY가 설정되지 않았습니다.' });
@@ -154,6 +156,9 @@ export async function runStreamingPipeline(input: PipelineInput, emitter: SSEEmi
     }
 
     const openai = new OpenAI({ apiKey });
+
+    // input은 파이프라인 중 의도 보강으로 업데이트될 수 있으므로 mutable 복사본 사용
+    let input = { ...rawInput };
 
     // 이미지 입력 노드
     const imageNodeId = uuidv4();
@@ -178,6 +183,31 @@ export async function runStreamingPipeline(input: PipelineInput, emitter: SSEEmi
     let cursor = { x: imagePos.x + 120, y: imagePos.y + 50 };
 
     try {
+        // ═══════════════════════════════════════════
+        // PHASE 0: Clarification — 의도 명확성 검사
+        // ═══════════════════════════════════════════
+        emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'thinking', message: '의도 명확성을 검토합니다...' });
+        const clarification = await runClarificationAgent(openai, {
+            intentText: input.intentText,
+            imageBase64: input.imageBase64,
+            imageMimeType: input.imageMimeType,
+        });
+
+        if (clarification.score < 60 && clarification.questions.length > 0) {
+            const cpId = uuidv4();
+            const clarifiedResponse = await waitForCheckpoint(
+                emitter, cpId,
+                `의도가 다소 모호합니다 (명확도 ${clarification.score}%). 더 정확한 분석을 위해 답변해주세요.`,
+                [...clarification.questions, '현재 의도로 바로 분석 시작'],
+                input.intentText,
+            );
+            if (clarifiedResponse && clarifiedResponse !== '현재 의도로 바로 분석 시작') {
+                input = { ...input, intentText: `${input.intentText}\n[추가 정보] ${clarifiedResponse}` };
+                state.userContext.push(`[의도 보강] ${clarifiedResponse}`);
+            }
+        }
+        emitter.emit({ type: 'agent:status', agentId: 'intent', status: 'idle' });
+
         // ═══════════════════════════════════════════
         // PHASE 1: Intent + Visual Scan (병렬)
         // ═══════════════════════════════════════════
@@ -215,7 +245,7 @@ export async function runStreamingPipeline(input: PipelineInput, emitter: SSEEmi
         // ═══════════════════════════════════════════
         // PHASE 3: Gap Analysis
         // ═══════════════════════════════════════════
-        cursor = await executeGapAgent(emitter, openai, state, cursor);
+        cursor = await executeGapAgent(emitter, openai, state, cursor, input);
 
         // 체크포인트 2: 수정 방향
         if (state.gapResult) {
@@ -443,6 +473,7 @@ async function executeParallelDecoders(
 async function executeGapAgent(
     emitter: SSEEmitter, openai: OpenAI,
     state: PipelineState, cursor: { x: number; y: number },
+    input: PipelineInput,
 ): Promise<{ x: number; y: number }> {
     if (!state.intentResult || state.decodingResults.length === 0) return cursor;
 
@@ -475,12 +506,20 @@ async function executeGapAgent(
             visualScan: state.visualScanResult,
             decodingResults: state.decodingResults.map(dr => dr.result),
             userContext: state.userContext.join('\n') || undefined,
+            platformContext: getPlatformContext(input.contextPreset) || undefined,
+            profileContext: input.profileContext || undefined,
         }, onToken),
     );
     cursor = out.cursorPos;
     state.gapResult = out.result;
 
     emitter.emit({ type: 'node:update', nodeId, data: { title: `Gap 분석 (일치도 ${out.result.overallAlignmentScore}%)`, content: out.result, streamingText: undefined, status: 'active' } });
+
+    // imageInputNode에 bbox 어노테이션 전달 (오버레이 렌더링용)
+    const bboxGaps = out.result.gaps.filter(g => g.bbox);
+    if (bboxGaps.length > 0) {
+        emitter.emit({ type: 'node:update', nodeId: state.imageNodeId, data: { content: { hasImage: true, gapAnnotations: bboxGaps.map(g => ({ bbox: g.bbox!, severity: g.severity, dimension: g.dimension })) } } });
+    }
     emitter.emit({ type: 'agent:status', agentId: 'gap', status: 'idle' });
 
     state.lastNodeId = nodeId;
@@ -517,6 +556,8 @@ async function executeRevisionAgent(
             intentAnalysis: state.intentResult!, gapAnalysis: state.gapResult!,
             visualScan: state.visualScanResult,
             userContext: state.userContext.join('\n') || undefined,
+            platformContext: getPlatformContext(input.contextPreset) || undefined,
+            profileContext: input.profileContext || undefined,
         }, onToken),
     );
     cursor = out.cursorPos;

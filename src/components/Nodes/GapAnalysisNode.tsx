@@ -110,7 +110,7 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                     const sev = SEVERITY_STYLES[gap.severity] || SEVERITY_STYLES.low;
                     return (
                         <div key={i} className="bg-[#0a0a0a] rounded-md p-2 space-y-1.5">
-                            {/* 심각도 + 차원 + 시각 요소 */}
+                            {/* 심각도 + 차원 + 시각 요소 + confidence */}
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span
                                     className="text-[8px] font-bold px-1.5 py-0.5 rounded tracking-wider"
@@ -122,6 +122,18 @@ export default function GapAnalysisNode({ data, selected }: Props) {
                                 {gap.visualElement && (
                                     <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400/80 border border-amber-500/20 truncate max-w-[120px]">
                                         {gap.visualElement}
+                                    </span>
+                                )}
+                                {typeof gap.confidence === 'number' && (
+                                    <span
+                                        className="ml-auto text-[8px] px-1.5 py-0.5 rounded font-mono shrink-0"
+                                        style={{
+                                            color: gap.confidence >= 70 ? '#4ade80' : gap.confidence >= 40 ? '#f59e0b' : '#6b7280',
+                                            backgroundColor: gap.confidence >= 70 ? 'rgba(74,222,128,0.1)' : gap.confidence >= 40 ? 'rgba(245,158,11,0.1)' : 'rgba(107,114,128,0.1)',
+                                        }}
+                                        title={`판단 신뢰도 ${gap.confidence}%`}
+                                    >
+                                        {gap.confidence}%
                                     </span>
                                 )}
                             </div>
